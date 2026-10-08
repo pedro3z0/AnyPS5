@@ -95,6 +95,10 @@ Games that open the console's system font sets (`sceFontOpenFontSet`) need font 
 
 The game runs on the first Vulkan 1.1 device with graphics and compute queues and swapchain presentation, preferring a discrete GPU over an integrated one. Set `ANYPS5_GPU` to a part of a device name, compared without regard to case, to run on another device; the names are printed at start-up in the `Physical device candidate` lines. When no usable device contains the text, the start fails and the error lists the device names.
 
+### Presentation
+
+The swapchain uses vsync (`VK_PRESENT_MODE_FIFO_KHR`) by default. Set `ANYPS5_VSYNC=0` to use the first supported tear-free mode instead (mailbox, then immediate); when neither is supported, the swapchain keeps FIFO vsync.
+
 ## Exit codes
 
 `0`: conversion succeeded. `1`: invalid arguments. `2`: conversion failed; the error is printed to stderr. With `--autorun`, successful conversion returns the launched application's exit code.

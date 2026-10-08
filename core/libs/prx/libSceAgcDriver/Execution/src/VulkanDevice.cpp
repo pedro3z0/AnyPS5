@@ -55,6 +55,20 @@
 namespace AgcDriver {
 namespace {
 
+VkPresentModeKHR SelectPresentMode(std::uint32_t presentModeCount, const VkPresentModeKHR* presentModes) {
+    const char* vsync = std::getenv("ANYPS5_VSYNC");
+    if (vsync != nullptr && std::strcmp(vsync, "0") == 0) {
+        const VkPresentModeKHR preferred[] = {VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR};
+        for (const auto mode : preferred) {
+            for (std::uint32_t i = 0; i < presentModeCount; i++) {
+                if (presentModes[i] == mode) return mode;
+            }
+        }
+    }
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+
 void check(VkResult result, const char* operation) {
     if (result != VK_SUCCESS) {
         throw std::runtime_error(std::string(operation) + ": Vulkan result " + std::to_string(result));
@@ -1139,6 +1153,12 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         require(drawableWidth != 0 && drawableHeight != 0, "window has a zero drawable size at creation");
         VkSurfaceCapabilitiesKHR surface{};
         check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        std::uint32_t presentModeCount = 0;
+        check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR")(selected, state->surface, &presentModeCount, nullptr), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+        if (presentModeCount != 0) {
+            check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR")(selected, state->surface, &presentModeCount, presentModes.data()), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        }
         state->extent = {drawableWidth, drawableHeight};
         APS5_LOG_OUT("Surface capabilities drawable=%ux%u min=%ux%u max=%ux%u minImages=%u maxImages=%u usage=0x%x", drawableWidth, drawableHeight, surface.minImageExtent.width, surface.minImageExtent.height, surface.maxImageExtent.width, surface.maxImageExtent.height, surface.minImageCount, surface.maxImageCount, surface.supportedUsageFlags);
         // A surface that reports its extent (a fullscreen transition can make it differ from the
@@ -1169,7 +1189,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         swapchain.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         swapchain.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         swapchain.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swapchain.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        swapchain.presentMode = SelectPresentMode(presentModeCount, presentModes.data());
         swapchain.clipped = VK_FALSE;
         check(state->DeviceFunction<PFN_vkCreateSwapchainKHR>("vkCreateSwapchainKHR")(state->device, &swapchain, nullptr, &state->swapchain), "vkCreateSwapchainKHR");
         std::uint32_t imageCount = 0;
@@ -1803,6 +1823,12 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     WaitIdle();
     VkSurfaceCapabilitiesKHR surface{};
     check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(state->physical, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR resize");
+    std::uint32_t presentModeCount = 0;
+    check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR")(state->physical, state->surface, &presentModeCount, nullptr), "vkGetPhysicalDeviceSurfacePresentModesKHR resize");
+    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+    if (presentModeCount != 0) {
+        check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR")(state->physical, state->surface, &presentModeCount, presentModes.data()), "vkGetPhysicalDeviceSurfacePresentModesKHR resize");
+    }
     // The window's drawable size and the surface's extent can disagree for a moment while the window
     // is being resized; the swapchain must match the surface, and the next present catches up.
     if (surface.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
@@ -1827,7 +1853,7 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     create.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     create.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    create.presentMode = SelectPresentMode(presentModeCount, presentModes.data());
     create.oldSwapchain = state->swapchain;
     state->retiredSwapchains.reserve(state->retiredSwapchains.size() + 1);
     VkSwapchainKHR replacement = VK_NULL_HANDLE;

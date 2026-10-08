@@ -118,6 +118,7 @@ struct Ngs2Voice {
     Ngs2UserFxProcessHandler userFxHandler = nullptr;
     std::array<std::uintptr_t, 3> userFxData{};
     std::uint32_t userFxFlags = 0;
+    std::vector<std::uint8_t> fxEffect;
     std::vector<float> samples;
     bool rendering = false;
     bool rendered = false;

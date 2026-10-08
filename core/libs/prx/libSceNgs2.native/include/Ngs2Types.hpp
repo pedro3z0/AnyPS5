@@ -17,6 +17,7 @@ static constexpr int SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT = static_cast<int>(0
 
 static constexpr std::uint32_t SCE_NGS2_RACK_ID_SAMPLER = 0x1000;
 static constexpr std::uint32_t SCE_NGS2_RACK_ID_SUBMIXER = 0x2000;
+static constexpr std::uint32_t SCE_NGS2_RACK_ID_SUBMIXER_FX = 0x2001;
 static constexpr std::uint32_t SCE_NGS2_RACK_ID_MASTERING = 0x3000;
 static constexpr std::uint32_t SCE_NGS2_RACK_ID_CUSTOM_SUBMIXER = 0x4002;
 
@@ -50,6 +51,8 @@ static constexpr std::uint32_t SCE_NGS2_SAMPLER_VOICE_PARAM_PITCH = 0x10000005;
 static constexpr std::uint32_t SCE_NGS2_SAMPLER_VOICE_PARAM_FILTER = 0x1000000a;
 static constexpr std::uint32_t SCE_NGS2_SUBMIXER_VOICE_PARAM_SETUP = 0x20000000;
 static constexpr std::uint32_t SCE_NGS2_SUBMIXER_VOICE_PARAM_USER_FX = 0x20000004;
+static constexpr std::uint32_t SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_SETUP = 0x20010000;
+static constexpr std::uint32_t SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_EFFECT = 0x20010001;
 static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_SETUP = 0x30000000;
 static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_GAIN = 0x30000004;
 static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT = 0x30000005;
@@ -421,6 +424,12 @@ struct Ngs2SubmixerVoiceSetupParam {
 };
 static_assert(sizeof(Ngs2SubmixerVoiceSetupParam) == 16);
 
+struct Ngs2SubmixerFxVoiceEffectParam {
+    Ngs2VoiceParamHeader header;
+    std::uint8_t data[88];
+};
+static_assert(sizeof(Ngs2SubmixerFxVoiceEffectParam) == 96);
+
 struct Ngs2SubmixerVoiceUserFxParam {
     Ngs2VoiceParamHeader header;
     Ngs2UserFxProcessHandler handler;
@@ -548,12 +557,19 @@ struct Ngs2WaveformInfo {
 static_assert(sizeof(Ngs2WaveformInfo) == 232);
 
 struct Ngs2PanParam {
-    std::uint32_t reserved[16];
+    float angle;
+    float distance;
+    float fbwLevel;
+    float lfeLevel;
 };
+static_assert(sizeof(Ngs2PanParam) == 16);
 
 struct Ngs2PanWork {
-    std::uint32_t reserved[64];
+    float speakerAngle[8];
+    float unitAngle;
+    std::uint32_t numSpeakers;
 };
+static_assert(sizeof(Ngs2PanWork) == 40);
 
 struct Ngs2GeomListenerParam {
     std::uint32_t reserved[32];

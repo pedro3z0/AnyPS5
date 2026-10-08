@@ -19,10 +19,15 @@ union RackOptions {
     Ngs2CustomSubmixerRackOption customSubmixer;
 };
 
+static bool IsSubmixerRack(std::uint32_t rackId) {
+    return rackId == SCE_NGS2_RACK_ID_SUBMIXER || rackId == SCE_NGS2_RACK_ID_SUBMIXER_FX;
+}
+
 static std::size_t RackOptionSize(std::uint32_t rackId) {
     switch (rackId) {
         case SCE_NGS2_RACK_ID_SAMPLER: return sizeof(Ngs2SamplerRackOption);
-        case SCE_NGS2_RACK_ID_SUBMIXER: return sizeof(Ngs2SubmixerRackOption);
+        case SCE_NGS2_RACK_ID_SUBMIXER:
+        case SCE_NGS2_RACK_ID_SUBMIXER_FX: return sizeof(Ngs2SubmixerRackOption);
         case SCE_NGS2_RACK_ID_MASTERING: return sizeof(Ngs2MasteringRackOption);
         case SCE_NGS2_RACK_ID_CUSTOM_SUBMIXER: return sizeof(Ngs2CustomSubmixerRackOption);
         default: throw std::runtime_error("NGS2: rack id " + Ngs2Hex(rackId) + " is not implemented");
@@ -53,6 +58,7 @@ static RackOptions DefaultRackOption(std::uint32_t rackId) {
             options.sampler.num_peak_meter_blocks = 8;
             break;
         case SCE_NGS2_RACK_ID_SUBMIXER:
+        case SCE_NGS2_RACK_ID_SUBMIXER_FX:
             options.submixer.max_channels = 8;
             options.submixer.max_envelope_points = 4;
             options.submixer.max_filters = 8;
@@ -70,7 +76,7 @@ static RackOptions DefaultRackOption(std::uint32_t rackId) {
 }
 
 static std::uint32_t RackMaxChannels(std::uint32_t rackId, const RackOptions& options) {
-    if (rackId == SCE_NGS2_RACK_ID_SUBMIXER) return options.submixer.max_channels;
+    if (IsSubmixerRack(rackId)) return options.submixer.max_channels;
     if (rackId == SCE_NGS2_RACK_ID_MASTERING) return options.mastering.max_channels;
     if (rackId == SCE_NGS2_RACK_ID_CUSTOM_SUBMIXER) return options.customSubmixer.max_channels;
     return NGS2_MAX_CHANNELS;
@@ -105,7 +111,7 @@ static int CreateRack(Ngs2Handle systemHandle, std::uint32_t rackId, const RackO
     rack->name[sizeof(rack->name) - 1] = '\0';
     rack->maxGrainSamples = options.common.max_grain_samples;
     if (rackId == SCE_NGS2_RACK_ID_SAMPLER) rack->maxChannelWorks = options.sampler.max_channel_works;
-    if (rackId == SCE_NGS2_RACK_ID_SUBMIXER) rack->maxInputs = options.submixer.max_inputs;
+    if (IsSubmixerRack(rackId)) rack->maxInputs = options.submixer.max_inputs;
     if (rackId == SCE_NGS2_RACK_ID_CUSTOM_SUBMIXER) rack->maxInputs = options.customSubmixer.max_inputs;
     rack->bufferInfo = bufferInfo;
     rack->allocator = allocator;

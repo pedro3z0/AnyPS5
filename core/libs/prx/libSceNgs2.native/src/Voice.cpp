@@ -2,6 +2,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <numbers>
 #include <stdexcept>
@@ -66,6 +68,7 @@ void Ngs2Voice::ResetSetup() {
     userFxHandler = nullptr;
     userFxData = {};
     userFxFlags = 0;
+    fxEffect.clear();
 }
 
 const std::uint8_t* Ngs2StreamEnd(const Ngs2Voice& voice, const Ngs2Block& block) {
@@ -280,6 +283,13 @@ static void SetupMixer(Ngs2Voice& voice, std::uint32_t numChannels) {
 }
 
 static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
+    if (std::getenv("ANYPS5_NGS2_TRACE") != nullptr) {
+        std::fprintf(stderr, "[ngs2-local] voice param id=0x%x size=%u next=%d\n", param.id, param.size, param.next);
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&param);
+        std::fprintf(stderr, "[ngs2-local] bytes:");
+        for (std::uint32_t i = 0; i < param.size && i < 64; i++) std::fprintf(stderr, " %02x", bytes[i]);
+        std::fprintf(stderr, "\n");
+    }
     const std::uint32_t rackId = param.id >> 16;
     if (rackId == 0) {
         ApplyCommonParam(voice, param);
@@ -293,6 +303,7 @@ static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
     switch (rackId) {
         case SCE_NGS2_RACK_ID_SAMPLER: ApplySamplerParam(voice, param); return;
         case SCE_NGS2_RACK_ID_SUBMIXER:
+        case SCE_NGS2_RACK_ID_SUBMIXER_FX:
             if (param.id == SCE_NGS2_SUBMIXER_VOICE_PARAM_USER_FX) {
                 const auto& fx = ParamAs<Ngs2SubmixerVoiceUserFxParam>(param);
                 voice.userFxHandler = fx.handler;
@@ -300,9 +311,18 @@ static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
                 voice.userFxFlags = fx.handler ? 1 : 0;
                 return;
             }
-            if (param.id != SCE_NGS2_SUBMIXER_VOICE_PARAM_SETUP) break;
-            if (ParamAs<Ngs2SubmixerVoiceSetupParam>(param).flags != 0) throw std::runtime_error("NGS2: submixer setup flags are not implemented");
-            SetupMixer(voice, ParamAs<Ngs2SubmixerVoiceSetupParam>(param).num_io_channels);
+            if (param.id != SCE_NGS2_SUBMIXER_VOICE_PARAM_SETUP && param.id != SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_SETUP && param.id != SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_EFFECT) break;
+            if (param.id == SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_EFFECT) {
+                const auto& effect = ParamAs<Ngs2SubmixerFxVoiceEffectParam>(param);
+                voice.fxEffect.assign(effect.data, effect.data + sizeof(effect.data));
+                return;
+            }
+            {
+                const auto& setup = ParamAs<Ngs2SubmixerVoiceSetupParam>(param);
+                if (setup.flags != 0 && !(param.id == SCE_NGS2_SUBMIXER_FX_VOICE_PARAM_SETUP && setup.flags == 0x2))
+                    throw std::runtime_error("NGS2: submixer setup flags are not implemented");
+                SetupMixer(voice, setup.num_io_channels);
+            }
             return;
         case SCE_NGS2_RACK_ID_MASTERING:
             if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_SETUP) {
@@ -386,7 +406,8 @@ int APS5_VABI sceNgs2VoiceGetState(uintptr_t voice_handle, Ngs2VoiceState* state
             sampler.waveform_data = voice.WaveformData();
             return SCE_NGS2_OK;
         }
-        case SCE_NGS2_RACK_ID_SUBMIXER: {
+        case SCE_NGS2_RACK_ID_SUBMIXER:
+        case SCE_NGS2_RACK_ID_SUBMIXER_FX: {
             if (state_size != sizeof(Ngs2SubmixerVoiceState)) return SCE_NGS2_ERROR_INVALID_OUT_SIZE;
             auto& submixer = *reinterpret_cast<Ngs2SubmixerVoiceState*>(state);
             submixer = {};

@@ -220,14 +220,14 @@ bool Toggle(Game& game, const char* key, bool active) {
 }
 
 void DrawGraphicsTab(Game& game) {
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Display");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Display");
     bool vsync = game.env.find("ANYPS5_VSYNC") == game.env.end() || game.env.at("ANYPS5_VSYNC") != "0";
     if (ImGui::Checkbox("Vsync", &vsync)) Toggle(game, "ANYPS5_VSYNC", vsync);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Off switches the swapchain to mailbox or immediate present modes");
     }
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Shaders");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Shaders");
     ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_GPU", game.env["ANYPS5_GPU"], "Vulkan device name filter, e.g. RX 580 or NVIDIA");
     ImGui::SetNextItemWidth(-1.0f);
@@ -293,26 +293,26 @@ void ApplyEnvText(App& app, Game& game) {
 
 void DrawAdvancedTab(App& app) {
     Game& game = app.games[app.selected];
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Fonts");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Fonts");
     ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_SYSTEM_FONTS", game.env["ANYPS5_SYSTEM_FONTS"], "directory with SST-*.otf or Noto substitutes");
 
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Logging");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Logging");
     bool trace = game.env.count("ANYPS5_NGS2_TRACE") != 0 && !game.env.at("ANYPS5_NGS2_TRACE").empty();
     if (ImGui::Checkbox("NGS2 voice param trace", &trace)) Toggle(game, "ANYPS5_NGS2_TRACE", trace);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Dumps NGS2 voice params to stderr for debugging missing implementations");
     }
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Other");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Other");
     ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_ENTITLEMENTS", game.env["ANYPS5_ENTITLEMENTS"], "entitlements file path");
 
     const auto ini = InputPath(game);
     ImGui::TextDisabled("input mapping: %s", ini.string().c_str());
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Custom environment");
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Custom environment");
     ImGui::TextDisabled("One KEY=VALUE per line; applied when settings are saved");
     if (app.dialog.envGame != app.selected) {
         app.dialog.envGame = app.selected;

@@ -10,12 +10,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <map>
+#include <vector>
 
 namespace Launcher {
 
@@ -40,6 +43,119 @@ std::string ShortPath(const std::string& path) {
     const std::string prefix = std::string(homeValue) + "/";
     if (path.rfind(prefix, 0) == 0) return "~/" + path.substr(prefix.size());
     return path;
+}
+
+enum class Glyph { Play, Convert, Audit, Sliders, Keyboard, Folder, Trash, Plus, Page, Close };
+
+void DrawGlyph(Glyph glyph, ImDrawList* draw, const ImVec2& origin, float size, ImU32 color) {
+    const float x = origin.x;
+    const float y = origin.y;
+    const float c = size * 0.5f;
+    const float stroke = size * 0.10f > 1.5f ? size * 0.10f : 1.5f;
+    switch (glyph) {
+    case Glyph::Play: {
+        const ImVec2 triangle[3] = {
+            ImVec2(x + size * 0.24f, y + size * 0.16f),
+            ImVec2(x + size * 0.24f, y + size * 0.84f),
+            ImVec2(x + size * 0.80f, y + c),
+        };
+        draw->AddConvexPolyFilled(triangle, 3, color);
+        break;
+    }
+    case Glyph::Convert: {
+        const ImVec2 center(x + c, y + c);
+        const float radius = size * 0.30f;
+        draw->PathArcTo(center, radius, -0.6f, 3.9f, 20);
+        draw->PathStroke(color, false, stroke);
+        const float angle = 3.9f;
+        const ImVec2 end(center.x + radius * std::cos(angle), center.y + radius * std::sin(angle));
+        const ImVec2 direction(-std::sin(angle), std::cos(angle));
+        const ImVec2 outward(std::cos(angle), std::sin(angle));
+        const float head = size * 0.17f;
+        const ImVec2 arrow[3] = {
+            ImVec2(end.x + direction.x * head, end.y + direction.y * head),
+            ImVec2(end.x + outward.x * head * 0.9f, end.y + outward.y * head * 0.9f),
+            ImVec2(end.x - outward.x * head * 0.9f, end.y - outward.y * head * 0.9f),
+        };
+        draw->AddConvexPolyFilled(arrow, 3, color);
+        break;
+    }
+    case Glyph::Audit: {
+        draw->AddRect(ImVec2(x + size * 0.14f, y + size * 0.14f), ImVec2(x + size * 0.86f, y + size * 0.86f), color, size * 0.14f, 0, stroke);
+        draw->AddLine(ImVec2(x + size * 0.30f, y + size * 0.52f), ImVec2(x + size * 0.44f, y + size * 0.68f), color, stroke);
+        draw->AddLine(ImVec2(x + size * 0.44f, y + size * 0.68f), ImVec2(x + size * 0.72f, y + size * 0.32f), color, stroke);
+        break;
+    }
+    case Glyph::Sliders: {
+        for (int row = 0; row < 3; ++row) {
+            const float lineY = y + size * (0.28f + 0.22f * static_cast<float>(row));
+            draw->AddLine(ImVec2(x + size * 0.14f, lineY), ImVec2(x + size * 0.86f, lineY), color, stroke);
+            const float knobX = x + size * (0.36f + 0.20f * static_cast<float>((row + 1) % 3));
+            draw->AddCircleFilled(ImVec2(knobX, lineY), size * 0.12f, color, 12);
+        }
+        break;
+    }
+    case Glyph::Keyboard: {
+        draw->AddRect(ImVec2(x + size * 0.10f, y + size * 0.26f), ImVec2(x + size * 0.90f, y + size * 0.74f), color, size * 0.10f, 0, stroke);
+        for (int row = 0; row < 2; ++row) {
+            for (int column = 0; column < 4; ++column) {
+                draw->AddCircleFilled(ImVec2(x + size * (0.26f + 0.16f * static_cast<float>(column)), y + size * (0.38f + 0.16f * static_cast<float>(row))), size * 0.045f, color, 6);
+            }
+        }
+        break;
+    }
+    case Glyph::Folder: {
+        draw->AddRectFilled(ImVec2(x + size * 0.12f, y + size * 0.18f), ImVec2(x + size * 0.44f, y + size * 0.36f), color, size * 0.06f);
+        draw->AddRectFilled(ImVec2(x + size * 0.12f, y + size * 0.30f), ImVec2(x + size * 0.88f, y + size * 0.84f), color, size * 0.10f);
+        break;
+    }
+    case Glyph::Trash: {
+        draw->AddRectFilled(ImVec2(x + size * 0.42f, y + size * 0.10f), ImVec2(x + size * 0.58f, y + size * 0.22f), color, 1.0f);
+        draw->AddRectFilled(ImVec2(x + size * 0.18f, y + size * 0.24f), ImVec2(x + size * 0.82f, y + size * 0.34f), color, size * 0.06f);
+        draw->AddRectFilled(ImVec2(x + size * 0.26f, y + size * 0.36f), ImVec2(x + size * 0.74f, y + size * 0.86f), color, size * 0.10f);
+        break;
+    }
+    case Glyph::Plus: {
+        draw->AddLine(ImVec2(x + c, y + size * 0.16f), ImVec2(x + c, y + size * 0.84f), color, stroke * 1.2f);
+        draw->AddLine(ImVec2(x + size * 0.16f, y + c), ImVec2(x + size * 0.84f, y + c), color, stroke * 1.2f);
+        break;
+    }
+    case Glyph::Page: {
+        draw->AddRect(ImVec2(x + size * 0.22f, y + size * 0.12f), ImVec2(x + size * 0.78f, y + size * 0.88f), color, size * 0.08f, 0, stroke);
+        for (int row = 0; row < 3; ++row) {
+            const float lineY = y + size * (0.36f + 0.16f * static_cast<float>(row));
+            draw->AddLine(ImVec2(x + size * 0.34f, lineY), ImVec2(x + size * 0.66f, lineY), color, stroke * 0.8f);
+        }
+        break;
+    }
+    case Glyph::Close: {
+        draw->AddLine(ImVec2(x + size * 0.24f, y + size * 0.24f), ImVec2(x + size * 0.76f, y + size * 0.76f), color, stroke * 1.2f);
+        draw->AddLine(ImVec2(x + size * 0.76f, y + size * 0.24f), ImVec2(x + size * 0.24f, y + size * 0.76f), color, stroke * 1.2f);
+        break;
+    }
+    }
+}
+
+bool IconButton(const char* id, const char* label, Glyph glyph) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float glyphSize = 15.0f;
+    const bool hasLabel = label[0] != '\0';
+    const ImVec2 textSize = hasLabel ? ImGui::CalcTextSize(label) : ImVec2(0.0f, 0.0f);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float width = (hasLabel ? textSize.x + style.ItemInnerSpacing.x : 0.0f) + glyphSize + style.FramePadding.x * 2.0f;
+    const ImVec2 size(width, ImGui::GetFrameHeight());
+    ImGui::InvisibleButton(id, size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active = ImGui::IsItemActive();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 background = ImGui::GetColorU32(active ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+    draw->AddRectFilled(origin, ImVec2(origin.x + size.x, origin.y + size.y), background, style.FrameRounding);
+    const ImU32 foreground = ImGui::GetColorU32(ImGuiCol_Text);
+    DrawGlyph(glyph, draw, ImVec2(origin.x + style.FramePadding.x, origin.y + (size.y - glyphSize) * 0.5f), glyphSize, foreground);
+    if (hasLabel) {
+        draw->AddText(ImVec2(origin.x + style.FramePadding.x + glyphSize + style.ItemInnerSpacing.x, origin.y + (size.y - textSize.y) * 0.5f), foreground, label);
+    }
+    return ImGui::IsItemClicked();
 }
 
 }
@@ -83,43 +199,43 @@ bool MultilineText(const char* label, std::string& value, float width, float hei
 
 void ApplyStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowPadding = ImVec2(14, 12);
-    style.FramePadding = ImVec2(10, 6);
-    style.ItemSpacing = ImVec2(8, 7);
-    style.ItemInnerSpacing = ImVec2(6, 5);
-    style.IndentSpacing = 20;
-    style.ScrollbarSize = 13;
-    style.GrabMinSize = 12;
+    style.WindowPadding = ImVec2(16, 14);
+    style.FramePadding = ImVec2(12, 7);
+    style.ItemSpacing = ImVec2(9, 8);
+    style.ItemInnerSpacing = ImVec2(7, 5);
+    style.IndentSpacing = 22;
+    style.ScrollbarSize = 12;
+    style.GrabMinSize = 11;
     style.WindowBorderSize = 1;
     style.ChildBorderSize = 1;
     style.PopupBorderSize = 1;
     style.FrameBorderSize = 0;
-    style.WindowRounding = 8;
-    style.ChildRounding = 6;
-    style.FrameRounding = 5;
-    style.PopupRounding = 6;
-    style.ScrollbarRounding = 5;
-    style.GrabRounding = 4;
-    style.TabRounding = 5;
-    const ImVec4 background = ImVec4(0.086f, 0.094f, 0.114f, 1.0f);
-    const ImVec4 surface = ImVec4(0.122f, 0.133f, 0.157f, 1.0f);
-    const ImVec4 raised = ImVec4(0.157f, 0.169f, 0.196f, 1.0f);
-    const ImVec4 border = ImVec4(0.227f, 0.243f, 0.278f, 1.0f);
-    const ImVec4 accent = ImVec4(0.176f, 0.549f, 0.937f, 1.0f);
-    const ImVec4 accentDim = ImVec4(0.141f, 0.435f, 0.745f, 1.0f);
-    const ImVec4 text = ImVec4(0.902f, 0.925f, 0.953f, 1.0f);
-    const ImVec4 textDim = ImVec4(0.549f, 0.573f, 0.616f, 1.0f);
+    style.WindowRounding = 10;
+    style.ChildRounding = 14;
+    style.FrameRounding = 8;
+    style.PopupRounding = 12;
+    style.ScrollbarRounding = 7;
+    style.GrabRounding = 5;
+    style.TabRounding = 8;
+    const ImVec4 background = ImVec4(0.043f, 0.055f, 0.078f, 1.0f);
+    const ImVec4 surface = ImVec4(0.078f, 0.098f, 0.133f, 1.0f);
+    const ImVec4 raised = ImVec4(0.114f, 0.141f, 0.188f, 1.0f);
+    const ImVec4 border = ImVec4(0.176f, 0.216f, 0.286f, 1.0f);
+    const ImVec4 accent = ImVec4(0.039f, 0.518f, 1.0f, 1.0f);
+    const ImVec4 accentDim = ImVec4(0.024f, 0.384f, 0.776f, 1.0f);
+    const ImVec4 text = ImVec4(0.945f, 0.957f, 0.976f, 1.0f);
+    const ImVec4 textDim = ImVec4(0.545f, 0.588f, 0.659f, 1.0f);
     ImVec4* colors = style.Colors;
     colors[ImGuiCol_Text] = text;
     colors[ImGuiCol_TextDisabled] = textDim;
     colors[ImGuiCol_WindowBg] = background;
-    colors[ImGuiCol_ChildBg] = ImVec4(0.106f, 0.114f, 0.137f, 1.0f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.059f, 0.075f, 0.106f, 1.0f);
     colors[ImGuiCol_PopupBg] = surface;
     colors[ImGuiCol_Border] = border;
     colors[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
     colors[ImGuiCol_FrameBg] = raised;
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.196f, 0.212f, 0.243f, 1.0f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.227f, 0.247f, 0.286f, 1.0f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.153f, 0.184f, 0.243f, 1.0f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.176f, 0.216f, 0.286f, 1.0f);
     colors[ImGuiCol_TitleBg] = surface;
     colors[ImGuiCol_TitleBgActive] = surface;
     colors[ImGuiCol_TitleBgCollapsed] = surface;
@@ -134,7 +250,7 @@ void ApplyStyle() {
     colors[ImGuiCol_Button] = raised;
     colors[ImGuiCol_ButtonHovered] = accent;
     colors[ImGuiCol_ButtonActive] = accentDim;
-    colors[ImGuiCol_Header] = ImVec4(0.157f, 0.176f, 0.208f, 1.0f);
+    colors[ImGuiCol_Header] = ImVec4(0.114f, 0.141f, 0.208f, 1.0f);
     colors[ImGuiCol_HeaderHovered] = accentDim;
     colors[ImGuiCol_HeaderActive] = accent;
     colors[ImGuiCol_Separator] = border;
@@ -155,17 +271,24 @@ void ApplyStyle() {
     colors[ImGuiCol_NavHighlight] = accent;
     ImGuiIO& io = ImGui::GetIO();
     ImFontConfig config;
-    config.SizePixels = 16.0f;
-    const char* candidates[] = {
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-    };
-    for (const char* candidate : candidates) {
+    config.SizePixels = 17.0f;
+    const char* homeValue = std::getenv("HOME");
+    const std::string prefix = homeValue != nullptr && homeValue[0] != '\0' ? std::string(homeValue) : std::string();
+    std::vector<std::string> candidates;
+    if (!prefix.empty()) {
+        candidates.push_back(prefix + "/.local/share/fonts/Inter/extras/ttf/Inter-Regular.ttf");
+        candidates.push_back(prefix + "/.local/share/fonts/Inter/ttf/Inter-Regular.ttf");
+    }
+    candidates.push_back("/usr/share/fonts/TTF/OpenSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/truetype/open-sans/OpenSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    candidates.push_back("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
+    candidates.push_back("C:/Windows/Fonts/segoeui.ttf");
+    candidates.push_back("/System/Library/Fonts/Helvetica.ttc");
+    for (const std::string& candidate : candidates) {
         if (std::filesystem::is_regular_file(candidate)) {
-            if (io.Fonts->AddFontFromFileTTF(candidate, config.SizePixels, &config) != nullptr) return;
+            if (io.Fonts->AddFontFromFileTTF(candidate.c_str(), config.SizePixels, &config) != nullptr) return;
         }
     }
 }
@@ -182,82 +305,67 @@ void LoadIcon(App& app, const Game& game, void* renderer) {
     SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
     SDL_Texture* texture = nullptr;
     if (surface != nullptr) {
-        if (width > kIconSize || height > kIconSize) {
-            const double scale = static_cast<double>(kIconSize) / static_cast<double>(std::max(width, height));
-            SDL_Surface* scaled = SDL_CreateRGBSurfaceWithFormat(0, static_cast<int>(width * scale), static_cast<int>(height * scale), 32, SDL_PIXELFORMAT_RGBA32);
-            if (scaled != nullptr) {
-                SDL_UpperBlitScaled(surface, nullptr, scaled, nullptr);
-                texture = SDL_CreateTextureFromSurface(static_cast<SDL_Renderer*>(renderer), scaled);
-                SDL_FreeSurface(scaled);
-            }
-        } else {
-            texture = SDL_CreateTextureFromSurface(static_cast<SDL_Renderer*>(renderer), surface);
-        }
+        texture = SDL_CreateTextureFromSurface(static_cast<SDL_Renderer*>(renderer), surface);
         SDL_FreeSurface(surface);
     }
     stbi_image_free(pixels);
     if (texture != nullptr) app.icons[game.icon] = reinterpret_cast<std::uintptr_t>(texture);
 }
 
-void DrawMenuBar(App& app) {
-    if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Add game")) OpenAddDialog(app);
-
-            ImGui::Separator();
-            if (ImGui::MenuItem("Quit")) app.exitRequested = true;
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Log", nullptr, &app.dialog.logOpen);
-            ImGui::EndMenu();
-        }
-        ImGui::EndMenuBar();
-    }
-}
-
 void DrawToolbar(App& app) {
     const Game* selected = app.selected >= 0 && app.selected < static_cast<int>(app.games.size()) ? &app.games[app.selected] : nullptr;
+    ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "AnyPS5");
+    ImGui::SameLine();
     ImGui::BeginDisabled(app.busy || selected == nullptr);
-    if (ImGui::Button("Convert") && selected != nullptr) {
+    if (IconButton("##convert", "Convert", Glyph::Convert) && selected != nullptr) {
         app.Convert(*selected);
         app.Audit(*selected);
     }
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.176f, 0.549f, 0.937f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.227f, 0.627f, 0.980f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.141f, 0.435f, 0.745f, 1.0f));
-    if (ImGui::Button("Play") && selected != nullptr) app.Launch(*selected);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.039f, 0.518f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.60f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.024f, 0.384f, 0.776f, 1.0f));
+    const bool play = IconButton("##play", "Play", Glyph::Play);
     ImGui::PopStyleColor(3);
+    if (play && selected != nullptr) app.Launch(*selected);
     ImGui::SameLine();
-    if (ImGui::Button("Audit") && selected != nullptr) app.Audit(*selected);
-
+    if (IconButton("##audit", "Audit", Glyph::Audit) && selected != nullptr) app.Audit(*selected);
     ImGui::SameLine();
-    if (ImGui::Button("Settings")) app.dialog.showSettings = true;
+    if (IconButton("##settings", "Settings", Glyph::Sliders)) app.dialog.showSettings = true;
     ImGui::SameLine();
-    if (ImGui::Button("Input")) {
+    if (IconButton("##input", "Input", Glyph::Keyboard)) {
         app.dialog.showSettings = true;
         app.dialog.focusInput = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Open output") && selected != nullptr) {
+    if (IconButton("##openoutput", "Output", Glyph::Folder) && selected != nullptr) {
         const std::string command = "xdg-open '" + selected->out + "' || open '" + selected->out + "' || explorer '" + selected->out + "'";
         std::system(command.c_str());
     }
     ImGui::SameLine();
-    if (ImGui::Button("Remove") && selected != nullptr) {
+    if (IconButton("##remove", "Remove", Glyph::Trash) && selected != nullptr) {
         app.games.erase(app.games.begin() + app.selected);
         app.selected = -1;
         app.Save();
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
+    {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec2 barOrigin = ImGui::GetCursorScreenPos();
+        const float barHeight = ImGui::GetFrameHeight();
+        ImGui::Dummy(ImVec2(style.ItemSpacing.x * 2.0f, barHeight));
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(barOrigin.x + style.ItemSpacing.x, barOrigin.y + 3.0f), ImVec2(barOrigin.x + style.ItemSpacing.x, barOrigin.y + barHeight - 3.0f), ImGui::GetColorU32(ImGuiCol_Separator));
+    }
+    ImGui::SameLine();
     ImGui::BeginDisabled(app.busy);
-    if (ImGui::Button("Add game")) OpenAddDialog(app);
-
+    if (IconButton("##addgame", "Add game", Glyph::Plus)) OpenAddDialog(app);
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Logs")) app.dialog.logOpen = !app.dialog.logOpen;
+    if (IconButton("##logs", "Logs", Glyph::Page)) app.dialog.logOpen = !app.dialog.logOpen;
+    ImGui::SameLine();
+    if (IconButton("##quit", "", Glyph::Close)) app.exitRequested = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quit");
     if (app.busy) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.2f, 1.0f), "%s running...", app.lastCommand.c_str());
@@ -270,6 +378,7 @@ void DrawCard(App& app, int index, void* renderer) {
     LoadIcon(app, game, renderer);
     const auto it = app.icons.find(game.icon);
     const bool selected = app.selected == index;
+    const ImVec2 cardStart = ImGui::GetCursorScreenPos();
     ImGui::BeginGroup();
     ImGui::PushStyleColor(ImGuiCol_Button, selected ? ImVec4(0.176f, 0.549f, 0.937f, 0.35f) : ImVec4(0.157f, 0.169f, 0.196f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.176f, 0.549f, 0.937f, 0.22f));
@@ -288,7 +397,7 @@ void DrawCard(App& app, int index, void* renderer) {
     }
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kIconSize + 12.0f);
     if (selected) {
-        ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "%s", game.title.c_str());
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "%s", game.title.c_str());
     } else {
         ImGui::Text("%s", game.title.c_str());
     }
@@ -298,13 +407,21 @@ void DrawCard(App& app, int index, void* renderer) {
     }
     ImGui::TextDisabled("%s", game.status.empty() ? "not converted" : game.status.c_str());
     ImGui::EndGroup();
+    const ImVec2 cardEnd(cardStart.x + 148.0f, ImGui::GetCursorScreenPos().y);
+    ImDrawList* cardDraw = ImGui::GetWindowDrawList();
+    if (selected) {
+        cardDraw->AddRect(ImVec2(cardStart.x - 4.0f, cardStart.y - 4.0f), ImVec2(cardEnd.x + 4.0f, cardEnd.y + 4.0f), IM_COL32(10, 132, 255, 60), 16.0f, 0, 5.0f);
+        cardDraw->AddRect(cardStart, cardEnd, IM_COL32(10, 132, 255, 255), 13.0f, 0, 2.0f);
+    } else if (ImGui::IsMouseHoveringRect(cardStart, cardEnd)) {
+        cardDraw->AddRect(cardStart, cardEnd, IM_COL32(255, 255, 255, 36), 13.0f, 0, 1.0f);
+    }
     ImGui::PopID();
 }
 
-void DrawGrid(App& app, void* renderer) {
+void DrawGrid(App& app, void* renderer, float height) {
     const float width = ImGui::GetContentRegionAvail().x * 0.72f;
     const int columns = std::max(1, static_cast<int>(width / (kCellWidth + 14)));
-    ImGui::BeginChild("games", ImVec2(width, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("games", ImVec2(width, height), ImGuiChildFlags_Borders);
     if (ImGui::BeginTable("grid", columns)) {
         int index = 0;
         while (index < static_cast<int>(app.games.size())) {
@@ -321,7 +438,7 @@ void DrawGrid(App& app, void* renderer) {
             ImGui::TextColored(ImVec4(0.549f, 0.573f, 0.616f, 1.0f), "No games yet");
             ImGui::TextDisabled("Add a dumped game to convert, audit and play it here");
             ImGui::Spacing();
-            if (ImGui::Button("Add your first game", ImVec2(220, 0))) OpenAddDialog(app);
+            if (IconButton("##firstgame", "Add your first game", Glyph::Plus)) OpenAddDialog(app);
         }
 
         ImGui::EndTable();
@@ -329,9 +446,9 @@ void DrawGrid(App& app, void* renderer) {
     ImGui::EndChild();
 }
 
-void DrawDetails(App& app) {
+void DrawDetails(App& app, float height) {
     ImGui::SameLine();
-    ImGui::BeginChild("details", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("details", ImVec2(0, height), ImGuiChildFlags_Borders);
     if (app.selected < 0 || app.selected >= static_cast<int>(app.games.size())) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.549f, 0.573f, 0.616f, 1.0f), "Select a game");
@@ -342,16 +459,22 @@ void DrawDetails(App& app) {
         if (!game.titleId.empty()) ImGui::TextDisabled("ID: %s", game.titleId.c_str());
         if (!game.version.empty()) ImGui::TextDisabled("Version: %s", game.version.c_str());
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Status");
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Status");
         ImGui::TextWrapped("%s", game.status.empty() ? "not converted" : game.status.c_str());
         ImGui::TextDisabled("Last run: %s", game.lastRun.empty() ? "never" : game.lastRun.c_str());
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Paths");
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Paths");
         ImGui::TextDisabled("Dump: %s", game.dump.c_str());
         ImGui::TextDisabled("Out: %s", game.out.c_str());
-        ImGui::TextDisabled("Input: %s", game.input.c_str());
+        if (!game.input.empty()) {
+            const std::string inputInfo = std::filesystem::path(game.input).filename().string() + " (" + ClassifyKind(game.input) + ")";
+            ImGui::TextDisabled("Input: %s", inputInfo.c_str());
+        } else {
+            ImGui::TextDisabled("Input: not chosen");
+        }
+        if (!game.created.empty()) ImGui::TextDisabled("Added: %s", game.created.c_str());
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Environment");
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Environment");
         for (const auto& [key, value] : game.env) {
             if (!value.empty()) ImGui::TextDisabled("%s = %s", key.c_str(), value.c_str());
         }
@@ -366,6 +489,21 @@ void DrawStatusBar(App& app) {
     ImGui::TextDisabled("dump: %s", ShortPath(app.Config("lastDump", "")).c_str());
     ImGui::SameLine();
     ImGui::TextDisabled("out: %s", ShortPath(app.Config("lastOut", "")).c_str());
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    char clockText[8];
+    std::strftime(clockText, sizeof(clockText), "%H:%M", &local);
+    const float clockWidth = ImGui::CalcTextSize(clockText).x;
+    const float clockX = ImGui::GetWindowWidth() - clockWidth - ImGui::GetStyle().WindowPadding.x;
+    if (ImGui::GetCursorPosX() + 8.0f < clockX) {
+        ImGui::SameLine(clockX);
+        ImGui::TextDisabled("%s", clockText);
+    }
 }
 
 void DrawLog(App& app) {
@@ -379,7 +517,11 @@ void DrawLog(App& app) {
     ImGui::TextDisabled("last file: %s", app.lastLog.c_str());
     ImGui::Separator();
     ImGui::BeginChild("lines");
-    for (const auto& line : app.SnapshotLog()) ImGui::TextWrapped("%s", line.c_str());
+    const auto lines = app.SnapshotLog();
+    if (lines.empty()) {
+        ImGui::TextDisabled("No output yet; convert, audit, or run a game to see it here");
+    }
+    for (const auto& line : lines) ImGui::TextWrapped("%s", line.c_str());
     ImGui::EndChild();
     ImGui::End();
 }
@@ -391,13 +533,13 @@ void DrawUi(App& app, void* renderer, void* window) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowSize(viewport->WorkSize);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (ImGui::Begin("AnyPS5", nullptr, flags)) {
-        DrawMenuBar(app);
         DrawToolbar(app);
         ImGui::Separator();
-        DrawGrid(app, renderer);
-        DrawDetails(app);
+        const float contentHeight = ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() - 6.0f;
+        DrawGrid(app, renderer, contentHeight);
+        DrawDetails(app, contentHeight);
         DrawStatusBar(app);
     }
     ImGui::End();

@@ -87,6 +87,7 @@ void App::Load() {
         if (Config("lastOut", "").empty()) config["lastOut"] = (launcher / "games").string();
         ::Launcher::SaveConfig(config);
     }
+    AppendLog("ready - " + std::to_string(games.size()) + " game(s), dump " + Config("lastDump", ""));
 }
 
 void App::Save() const {

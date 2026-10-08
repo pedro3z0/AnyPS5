@@ -1,0 +1,26 @@
+name: Fork tools
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-tools-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 tools/tests/test_progress.py
+      - run: python3 tools/tests/test_import_audit.py
+      - run: python3 tools/hw-oracle/test_hw_oracle.py
+      - run: python3 tools/check_dump.py --help
+      - run: python3 tools/tests/test_check_dump.py

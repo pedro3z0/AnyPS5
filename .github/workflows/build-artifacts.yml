@@ -1,0 +1,80 @@
+name: Build artifacts
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONFIGURE: >-
+    -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+    -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+jobs:
+  build:
+    name: Build and package (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+            timeout: 30
+          - platform: windows
+            runner: windows-latest
+            timeout: 45
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout }}
+    env:
+      WINLIBS_RELEASE: 15.2.0posix-14.0.0-ucrt-r7
+      WINLIBS_ZIP: winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip
+      SSL_CERT_FILE: C:\Program Files\Git\mingw64\etc\ssl\certs\ca-bundle.crt
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - if: matrix.platform == 'windows'
+        id: toolchain
+        uses: actions/cache@v6
+        with:
+          path: C:\winlibs
+          key: ${{ env.WINLIBS_ZIP }}
+      - if: matrix.platform == 'windows' && steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/winlibs.zip" "https://github.com/brechtsanders/winlibs_mingw/releases/download/$WINLIBS_RELEASE/$WINLIBS_ZIP"
+          7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
+      - if: matrix.platform == 'windows'
+        run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: artifacts-${{ matrix.platform }}
+          save: ${{ github.event_name == 'push' }}
+          evict-old-files: job
+      - if: matrix.platform == 'linux'
+        run: cmake -S . -B build $CONFIGURE
+      - if: matrix.platform == 'windows'
+        run: cmake -S . -B build $CONFIGURE
+      - run: cmake --build build
+      - run: cmake --build build --target libs
+      - run: |
+          short=$(git rev-parse --short HEAD)
+          python tools/package_release.py --platform "${{ matrix.platform }}" --build build --output dist --version "v0.0.0-$short"
+          ls -lh dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.platform }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

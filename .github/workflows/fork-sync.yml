@@ -1,0 +1,80 @@
+name: Fork sync
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream:
+        description: 'Upstream repository (owner/name)'
+        required: false
+        default: 'boykopovar/AnyPS5'
+      branch:
+        description: 'Upstream branch to sync'
+        required: false
+        default: 'main'
+      mode:
+        description: 'sync behavior'
+        required: false
+        default: 'fast-forward'
+        type: choice
+        options:
+          - fast-forward
+          - pull-request
+
+permissions: {}
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: ${{ inputs.upstream || 'boykopovar/AnyPS5' }}
+      BRANCH: ${{ inputs.branch || 'main' }}
+      MODE: ${{ inputs.mode || 'fast-forward' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: |
+          set -eu
+          git remote add upstream "https://github.com/$UPSTREAM.git" 2>/dev/null || git remote set-url upstream "https://github.com/$UPSTREAM.git"
+          git fetch --no-tags upstream "$BRANCH"
+          base=$(git rev-parse HEAD)
+          head=$(git rev-parse "upstream/$BRANCH")
+          if [ "$base" = "$head" ]; then
+            echo "already in sync with $UPSTREAM/$BRANCH ($base)"
+            exit 0
+          fi
+          if git merge-base --is-ancestor "$base" "$head"; then
+            echo "fast-forward possible: $base -> $head"
+          else
+            echo "branches diverged; local=$base upstream=$head"
+            git log --oneline --graph --decorate -15 "$head" --not "$base" | head -n 30 || true
+          fi
+          if [ "$MODE" = "pull-request" ]; then
+            branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
+            git checkout -b "$branch" "$head"
+            git push origin "$branch"
+            gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local base was $base." --base main --head "$branch" || true
+            exit 0
+          fi
+          if git merge-base --is-ancestor "$base" "$head"; then
+            git checkout main 2>/dev/null || git checkout -B main
+            git merge --ff-only "upstream/$BRANCH"
+            git push origin main
+            echo "fast-forwarded main to $head"
+          else
+            branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
+            git checkout -b "$branch" "$head"
+            git push origin "$branch"
+            gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local and upstream diverged; review and resolve manually. Local base was $base." --base main --head "$branch" || true
+          fi

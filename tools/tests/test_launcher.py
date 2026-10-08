@@ -47,6 +47,10 @@ class LauncherTests(unittest.TestCase):
             with patch.object(launcher, "Launcher", side_effect=launcher.tk.TclError("no display")):
                 self.assertEqual(launcher.main(), 2)
 
+    def test_missing_tkinter_exits_two(self):
+        with patch.object(launcher, "tk", None):
+            self.assertEqual(launcher.main(), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

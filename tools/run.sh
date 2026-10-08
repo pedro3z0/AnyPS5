@@ -6,7 +6,7 @@ LIBS="$ROOT/build/core/libs/libs"
 APP0=""
 usage() {
   cat <<EOF
-Usage: $(basename "$0") --game <app.elf> [--libs <dir>] [--app0 <dir>]
+Usage: $(basename "$0") --game <app.elf> [--libs <dir>] [--app0 <dump dir holding sce_sys>]
 EOF
 }
 while [ $# -gt 0 ]; do
@@ -25,7 +25,10 @@ fi
 DIR="$(dirname "$GAME")"
 mkdir -p "$DIR/libs" "$DIR/app0"
 if [ -n "$APP0" ]; then
-  cp -r "$APP0"/. "$DIR/app0/"
+  if [ -d "$APP0/sce_sys" ]; then
+    mkdir -p "$DIR/app0/sce_sys"
+    cp -r "$APP0/sce_sys"/. "$DIR/app0/sce_sys/"
+  fi
 fi
 if [ -d "$LIBS" ]; then
   cp -n "$LIBS"/*.prx "$DIR/libs/" 2>/dev/null || true

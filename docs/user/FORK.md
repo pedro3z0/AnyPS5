@@ -39,14 +39,21 @@ Full library builds and game execution follow [build instructions](../dev/BUILD.
 
 ## Run a converted game
 
-Runtime layout is `app.elf`, `libs/*.prx` (built system libraries), `app0/` (game resources plus relinker `Guest module:` files), per [relinker usage](USAGE.md#runtime-layout). [`tools/run.sh`](../../tools/run.sh) fills `libs/` from the build and launches the game:
+Runtime layout is `app.elf`, `libs/*.prx` (built system libraries), and `app0/` (game resources such as `sce_sys/param.json`, which the title fails without, plus relinker `Guest module:` files), per [relinker usage](USAGE.md#runtime-layout). [`tools/run.sh`](../../tools/run.sh) fills `libs/` from the build, copies `sce_sys` from the dump into `app0/`, and launches the game:
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 cmake --build build --parallel
 cmake --build build --target libs --parallel
-tools/run.sh --game out/app.elf
+tools/convert.sh --dump "/path/to/dump" --out out
+tools/run.sh --game out/app.elf --app0 "/path/to/dump"
 ```
 
-Your title boots when audit shows `absent 0`; `stub` entries load and throw only if called. This fork's sample converts to 411 references (`implemented 291`, `stub 41`, `module 76`, `absent 0`) and currently stops at `NGS2: rack id 0x2001 is not implemented` in `libSceNgs2.native`.
+Your title boots when audit shows `absent 0`; `stub` entries load and throw only if called.
+
+## Launcher
+
+[`tools/launcher.py`](../../tools/launcher.py) is a cross-platform tkinter GUI (Linux, Windows, macOS; standard library only) that wires the steps above: pick dump and output directories, run check, convert, audit, or run the game, and stream every command's output into a timestamped log under `~/.local/share/anyps5/logs/` (Linux and macOS) or `%LOCALAPPDATA%\anyps5\logs` (Windows). Settings persist in `~/.config/anyps5/launcher.json`; a missing tkinter exits with `FAIL: no display`. NGS2 voice parameters are dumped to stderr with `ANYPS5_NGS2_TRACE=1` set, for investigating missing implementations.
+
+Your title converts to 411 references (`implemented 291`, `stub 41`, `module 76`, `absent 0`) and boots to presentation on this fork: rack `0x2001` audio, `sceNgs2PanInit`, `sceNgs2PanGetVolumeMatrix`, and an `app0/sce_sys/param.json` resource are implemented or staged as described in [technical debt](../dev/TechnicalDebt.md).
 

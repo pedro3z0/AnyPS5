@@ -3,19 +3,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DUMP=""
 OUT=""
+INPUT=""
 WINDOWS=0
 TO_INTEL=0
 UNUSED_FILTER=0
 EXTRA_ARGS=()
 usage() {
   cat <<EOF
-Usage: $(basename "$0") --dump <dir> --out <dir> [--windows] [--to-intel] [--unused-filter 0|1|2] [-- <relinker args>...]
+Usage: $(basename "$0") --dump <dir> --out <dir> [--input <elf>] [--windows] [--to-intel] [--unused-filter 0|1|2] [-- <relinker args>...]
 EOF
 }
 while [ $# -gt 0 ]; do
   case "$1" in
     --dump) DUMP="${2:?}"; shift 2;;
     --out) OUT="${2:?}"; shift 2;;
+    --input) INPUT="${2:?}"; shift 2;;
     --windows) WINDOWS=1; shift;;
     --to-intel) TO_INTEL=1; shift;;
     --unused-filter) UNUSED_FILTER="${2:?}"; shift 2;;
@@ -33,13 +35,19 @@ case "$UNUSED_FILTER" in
   *) echo "unused-filter must be 0, 1 or 2" >&2; exit 2;;
 esac
 python3 "$ROOT/tools/check_dump.py" "$DUMP"
-INPUT=""
-for candidate in "$DUMP/eboot.bin" "$DUMP/input.elf"; do
-  if [ -f "$candidate" ]; then
-    INPUT="$candidate"
-    break
+if [ -n "$INPUT" ]; then
+  if [ ! -f "$INPUT" ]; then
+    echo "FAIL: --input file missing: $INPUT" >&2
+    exit 2
   fi
-done
+else
+  for candidate in "$DUMP/eboot.bin" "$DUMP/input.elf"; do
+    if [ -f "$candidate" ]; then
+      INPUT="$candidate"
+      break
+    fi
+  done
+fi
 if [ -z "$INPUT" ]; then
   INPUT="$(find "$DUMP" -maxdepth 1 -type f \( -name '*.elf' -o -name 'eboot*' \) | sort | head -n 1 || true)"
 fi

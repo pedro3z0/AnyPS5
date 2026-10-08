@@ -55,7 +55,11 @@ Your title boots when audit shows `absent 0`; `stub` entries load and throw only
 
 ## Launcher
 
-[`tools/launcher.py`](../../tools/launcher.py) is a cross-platform tkinter GUI (Linux, Windows, macOS; standard library only) that wires the steps above: pick dump and output directories, run check, convert, audit, or run the game, and stream every command's output into a timestamped log under `~/.local/share/anyps5/logs/` (Linux and macOS) or `%LOCALAPPDATA%\anyps5\logs` (Windows). Settings persist in `~/.config/anyps5/launcher.json`; a missing tkinter exits with `FAIL: no display`. NGS2 voice parameters are dumped to stderr with `ANYPS5_NGS2_TRACE=1` set, for investigating missing implementations.
+[`tools/launcher.py`](../../tools/launcher.py) is a cross-platform tkinter GUI (Linux, Windows, macOS; standard library only) that manages converted games in `~/.config/anyps5/library.json`: add a game by picking its dump directory and the exact input executable (the dialog classifies every file as ELF, SELF, PKG, or unknown and prefers ELF, so a decrypted backup is picked over the still-encrypted `eboot.bin`), then convert (with automatic import audit), inspect the per-game status, run the game (double-click), open its output directory, or remove it from the library. Every step streams its output into a timestamped log under `~/.local/share/anyps5/logs/` (Linux and macOS) or `%LOCALAPPDATA%\anyps5\logs` (Windows). A missing tkinter exits with `FAIL: no display`. NGS2 voice parameters are dumped to stderr with `ANYPS5_NGS2_TRACE=1` set, for investigating missing implementations.
+
+```sh
+python3 tools/launcher.py
+```
 
 Your title converts to 411 references (`implemented 291`, `stub 41`, `module 76`, `absent 0`) and boots to presentation on this fork: rack `0x2001` audio, `sceNgs2PanInit`, `sceNgs2PanGetVolumeMatrix`, and an `app0/sce_sys/param.json` resource are implemented or staged as described in [technical debt](../dev/TechnicalDebt.md).
 

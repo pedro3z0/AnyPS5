@@ -28,6 +28,7 @@ jobs:
         run: |
           out=$RUNNER_TEMP/overlap
           python3 tools/pr_overlap.py --base "${{ github.event.repository.default_branch }}" --out "$out"
+          shopt -s nullglob
           marker='<!-- pr-overlap -->'
           for file in "$out"/*.md; do
             pr=$(basename "$file" .md)

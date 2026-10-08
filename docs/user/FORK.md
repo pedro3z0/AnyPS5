@@ -14,6 +14,8 @@ Fast Python checks, upstream sync, per-commit build artifacts, and dumped-game h
 
 [`.github/workflows/fork-sync.yml`](../../.github/workflows/fork-sync.yml) fast-forwards `main` to `boykopovar/AnyPS5` `main` every 6 hours when clean, and opens a `chore(sync)` pull request when diverged. Run manually with `workflow_dispatch` to pick another upstream, branch, or force pull-request mode.
 
+The inherited [Progress workflow](../../.github/workflows/progress.yml) deploys to GitHub Pages, which is off on a new fork: its `deploy-pages` step fails with `HttpError: Not Found` until Pages is enabled under repository settings with source `GitHub Actions`, or until the workflow is removed here. The inherited [PR overlap workflow](../../.github/workflows/pr-overlap.yml) skips its comment loop when no pull request is open.
+
 ## Dump check
 
 [`tools/check_dump.py`](../../tools/check_dump.py) reports whether a dumped-game directory holds a clean ELF executable with `sce_module/`, `sce_modules/`, or `prx/` beside it, as required by [relinker usage](USAGE.md). Exit `0` means ready, `1` means the primary executable is still a SELF container or PKG archive, `2` means no usable executable was found.

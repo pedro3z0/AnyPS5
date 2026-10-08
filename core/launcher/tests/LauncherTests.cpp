@@ -52,11 +52,18 @@ void CheckCandidates() {
     std::cout << "candidates ok\n";
 }
 
+void CheckToggles() {
+    Launcher::Game game;
+    assert(game.env.count("ANYPS5_VSYNC") == 0);
+    std::cout << "toggles ok\n";
+}
+
 }
 
 int main() {
     CheckJson();
     CheckInputText();
     CheckCandidates();
+    CheckToggles();
     std::cout << "launcher tests ok\n";
 }

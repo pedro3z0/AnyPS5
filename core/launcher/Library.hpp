@@ -32,8 +32,12 @@ struct Candidate {
 };
 
 std::filesystem::path LibraryPath();
+std::filesystem::path ConfigPath();
 std::filesystem::path LogDirectory();
 std::filesystem::path DefaultRoot();
+
+std::map<std::string, std::string> LoadConfig();
+void SaveConfig(const std::map<std::string, std::string>& config);
 
 std::vector<Game> LoadLibrary();
 void SaveLibrary(const std::vector<Game>& games);

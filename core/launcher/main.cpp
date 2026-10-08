@@ -9,21 +9,24 @@
 
 #include <SDL.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <iostream>
+#include <string>
 #include <thread>
 
 namespace Launcher {
 
 namespace {
 
-std::filesystem::path FindRoot(const std::string& executable) {
-    std::filesystem::path path = std::filesystem::absolute(executable).parent_path();
+std::filesystem::path FindRoot(const std::filesystem::path& executable) {
+    std::filesystem::path path = executable.parent_path();
     for (int i = 0; i < 6; i++) {
         if (std::filesystem::exists(path / "tools" / "convert.sh")) return path;
+        if (std::filesystem::exists(path / ".." / "lib" / "anyps5")) return path;
         path = path.parent_path();
     }
-    return DefaultRoot();
+    return executable.parent_path();
 }
 
 int Check(const std::filesystem::path& root) {
@@ -44,14 +47,23 @@ int Check(const std::filesystem::path& root) {
 
 int Launch(int argc, char** argv) {
     App app;
-    app.root = FindRoot(argv[0]);
+    app.executableDir = std::filesystem::absolute(argc > 0 ? argv[0] : "launcher").parent_path();
+    app.root = FindRoot(app.executableDir / "launcher");
+    app.Load();
     if (argc > 1 && std::string(argv[1]) == "--check") return Check(app.root);
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
         return 1;
     }
+    int width = 1280;
+    int height = 800;
+    try {
+        width = std::max(960, std::stoi(app.Config("windowW", "1280")));
+        height = std::max(640, std::stoi(app.Config("windowH", "800")));
+    } catch (const std::exception&) {
+    }
     SDL_Renderer* renderer = nullptr;
-    SDL_Window* window = SDL_CreateWindow("AnyPS5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1024, 680,
+    SDL_Window* window = SDL_CreateWindow("AnyPS5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
                                           SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (window != nullptr) {
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -66,11 +78,11 @@ int Launch(int argc, char** argv) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+    Launcher::ApplyStyle();
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
     app.renderer = renderer;
-    app.Load();
     bool running = true;
     while (running && !app.exitRequested) {
         SDL_Event event;
@@ -95,6 +107,11 @@ int Launch(int argc, char** argv) {
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
+    int savedWidth = 0;
+    int savedHeight = 0;
+    SDL_GetWindowSize(window, &savedWidth, &savedHeight);
+    app.SetConfig("windowW", std::to_string(savedWidth));
+    app.SetConfig("windowH", std::to_string(savedHeight));
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

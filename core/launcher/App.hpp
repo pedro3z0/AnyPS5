@@ -28,14 +28,16 @@ struct DialogBuffers {
     std::string cache = "shader_cache dir";
     bool showAdd = false;
     bool showSettings = false;
-    bool showInput = false;
+    bool focusInput = false;
     bool showBrowser = false;
     std::string browserPath;
+    bool foldersOnly = true;
     bool logOpen = false;
 };
 
 struct App {
     std::filesystem::path root;
+    std::filesystem::path executableDir;
     std::vector<Game> games;
     int selected = -1;
     std::mutex logMutex;
@@ -46,12 +48,21 @@ struct App {
     std::string lastLog;
     std::string settingsError;
     std::string inputError;
+    std::map<std::string, std::string> config;
     DialogBuffers dialog;
     void* renderer = nullptr;
     std::map<std::string, std::uint32_t> icons;
 
     void Load();
     void Save() const;
+    void SaveConfig();
+
+    bool IsConfigured() const;
+    std::filesystem::path RelinkerPath() const;
+    std::filesystem::path LibrariesPath() const;
+
+    std::string Config(const std::string& key, const std::string& fallback) const;
+    void SetConfig(const std::string& key, const std::string& value);
 
     bool Convert(const Game& game);
     bool Audit(const Game& game);

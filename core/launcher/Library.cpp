@@ -148,6 +148,35 @@ std::filesystem::path LibraryPath() {
     return std::filesystem::path(home()) / ".config" / "anyps5" / "library.json";
 }
 
+std::filesystem::path ConfigPath() {
+    return std::filesystem::path(home()) / ".config" / "anyps5" / "launcher.json";
+}
+
+std::map<std::string, std::string> LoadConfig() {
+    std::map<std::string, std::string> config;
+    try {
+        const auto value = Json::Parse(readFile(ConfigPath()));
+        if (value.type == Json::Type::Object) {
+            for (const auto& [key, item] : value.object) config[key] = item.asString();
+        }
+    } catch (const std::exception&) {
+        return config;
+    }
+    return config;
+}
+
+void SaveConfig(const std::map<std::string, std::string>& config) {
+    Json::Value value;
+    value.type = Json::Type::Object;
+    for (const auto& [key, item] : config) {
+        Json::Value entry;
+        entry.type = Json::Type::String;
+        entry.string = item;
+        value.object[key] = entry;
+    }
+    writeFile(ConfigPath(), Json::Dump(value) + "\n");
+}
+
 std::filesystem::path LogDirectory() {
 #ifdef _WIN32
     const char* local = std::getenv("LOCALAPPDATA");

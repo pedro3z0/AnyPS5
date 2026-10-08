@@ -74,10 +74,53 @@ std::filesystem::path newestRegistry(const std::filesystem::path& out) {
 
 void App::Load() {
     games = LoadLibrary();
+    config = ::Launcher::LoadConfig();
 }
 
 void App::Save() const {
     SaveLibrary(games);
+}
+
+void App::SaveConfig() {
+    ::Launcher::SaveConfig(config);
+}
+
+std::string App::Config(const std::string& key, const std::string& fallback) const {
+    const auto it = config.find(key);
+    return it == config.end() ? fallback : it->second;
+}
+
+void App::SetConfig(const std::string& key, const std::string& value) {
+    config[key] = value;
+    ::Launcher::SaveConfig(config);
+}
+
+bool App::IsConfigured() const {
+    return !games.empty() || !Config("lastDump", "").empty();
+}
+
+std::filesystem::path App::RelinkerPath() const {
+    const auto beside = executableDir / ("relinker"
+#ifdef _WIN32
+        ".exe"
+#endif
+    );
+    if (std::filesystem::is_regular_file(beside)) return beside;
+    const auto build = root / "build" / "core" / "relinker" / "relinker";
+    if (std::filesystem::is_regular_file(build)) return build;
+    const auto stage = root / "build-relinker" / "core" / "relinker" / "relinker";
+    if (std::filesystem::is_regular_file(stage)) return stage;
+    return {};
+}
+
+std::filesystem::path App::LibrariesPath() const {
+    const auto source = root / "build" / "core" / "libs" / "libs";
+    if (std::filesystem::is_directory(source)) return source;
+    const auto installed = executableDir / ".." / "lib" / "anyps5" / "libs";
+    if (std::filesystem::is_directory(installed)) return installed;
+    const auto sibling = executableDir / "libs";
+    if (std::filesystem::is_directory(sibling)) return sibling;
+    return {};
 }
 
 void App::AppendLog(const std::string& line) {
@@ -120,16 +163,21 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
 }
 
 bool App::Convert(const Game& game) {
-    const auto relinker = root / "build-relinker" / "core" / "relinker" / "relinker";
-    if (!std::filesystem::exists(relinker) && !std::filesystem::exists(root / "build" / "core" / "relinker" / "relinker")) {
-        AppendLog("FAIL: relinker binary not found under " + root.string());
+    const auto relinker = RelinkerPath();
+    if (relinker.empty()) {
+        AppendLog("FAIL: relinker binary not found beside the launcher or under " + root.string());
         return false;
     }
-    std::vector<std::string> args = {"bash", (root / "tools" / "convert.sh").string(),
-                                     "--dump", game.dump, "--out", game.out, "--input", game.input,
-                                     "--unused-filter", game.filter};
+    const auto out = std::filesystem::path(game.out);
+    std::error_code error;
+    std::filesystem::create_directories(out, error);
+    std::vector<std::string> args = {relinker.string()};
     if (game.windows) args.push_back("--windows");
     if (game.intel) args.push_back("--to-intel");
+    args.push_back("unused-filter=" + game.filter);
+    args.push_back("--registry");
+    args.push_back(game.input);
+    args.push_back(ExecutablePath(game).string());
     StartCommand("convert", args, {});
     return true;
 }
@@ -140,8 +188,17 @@ bool App::Audit(const Game& game) {
         AppendLog("FAIL: no .registry.json in " + game.out);
         return false;
     }
-    std::vector<std::string> args = {"python3", (root / "tools" / "import_audit.py").string(),
-                                     registry.string(), "--libs", (root / "build" / "core" / "libs" / "libs").string()};
+    const auto audit = root / "tools" / "import_audit.py";
+    const auto libs = LibrariesPath();
+    if (!std::filesystem::is_regular_file(audit)) {
+        AppendLog("audit needs the source tree (tools/import_audit.py); skipped");
+        return false;
+    }
+    if (libs.empty()) {
+        AppendLog("FAIL: no built .prx directory; run cmake --build build --target libs first");
+        return false;
+    }
+    std::vector<std::string> args = {"python3", audit.string(), registry.string(), "--libs", libs.string()};
     const auto modules = std::filesystem::path(game.dump) / "sce_module";
     if (std::filesystem::is_directory(modules)) {
         args.push_back("--modules");
@@ -157,17 +214,29 @@ bool App::Launch(const Game& game) {
         AppendLog("FAIL: " + exe.string() + " missing; convert first");
         return false;
     }
+    std::error_code error;
+    const auto libs = LibrariesPath();
+    if (!libs.empty()) {
+        std::filesystem::create_directories(exe.parent_path() / "libs", error);
+        for (const auto& item : std::filesystem::directory_iterator(libs)) {
+            if (item.path().extension() != ".prx") continue;
+            const auto target = exe.parent_path() / "libs" / item.path().filename();
+            std::filesystem::copy_file(item.path(), target, std::filesystem::copy_options::skip_existing, error);
+        }
+    }
+    const auto sys = std::filesystem::path(game.dump) / "sce_sys";
+    if (std::filesystem::is_directory(sys, error)) {
+        std::filesystem::create_directories(exe.parent_path() / "app0" / "sce_sys", error);
+        for (const auto& item : std::filesystem::directory_iterator(sys)) {
+            const auto target = exe.parent_path() / "app0" / "sce_sys" / item.path().filename();
+            std::filesystem::copy(item.path(), target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
+        }
+    }
     std::map<std::string, std::string> env = GameEnv(game);
     if (env.find("ANYPS5_SHADER_CACHE_DIR") == env.end() || env.at("ANYPS5_SHADER_CACHE_DIR").empty()) {
         env["ANYPS5_SHADER_CACHE_DIR"] = (exe.parent_path() / "shader_cache").string();
     }
-    std::vector<std::string> args = {"bash", (root / "tools" / "run.sh").string(), "--game", exe.string()};
-    const auto dump = std::filesystem::path(game.dump);
-    if (std::filesystem::is_directory(dump / "sce_sys")) {
-        args.push_back("--app0");
-        args.push_back(dump.string());
-    }
-    StartCommand("run", args, env);
+    StartCommand("run", {exe.string()}, env);
     return true;
 }
 

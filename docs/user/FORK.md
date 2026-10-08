@@ -55,13 +55,17 @@ Your title boots when audit shows `absent 0`; `stub` entries load and throw only
 
 ## Launcher
 
-[`tools/launcher.py`](../../tools/launcher.py) is a cross-platform tkinter GUI (Linux, Windows, macOS; standard library only) with a game grid: real `icon0.png` covers, title names and IDs from each dump's `sce_sys/param.json`, an audit/status detail panel, and per-game settings. Add a game by picking its dump directory and the exact input executable (the dialog classifies every file as ELF, SELF, PKG, or unknown and prefers ELF, so a decrypted backup is picked over the still-encrypted `eboot.bin`), then convert (with automatic import audit), inspect the per-game status, run the game (double-click), open its output directory, or remove it from the library.
+[`core/launcher`](../../core/launcher) is a native cross-platform GUI built on the vendored [SDL2](../../3rdparty/SDL2) and [Dear ImGui](../../3rdparty/imgui) with an icon game grid: real `icon0.png` covers, title names and IDs from each dump's `sce_sys/param.json`, an audit/status detail panel, a file browser, and per-game settings. Add a game by picking its dump directory and the exact input executable (the dialog classifies every file as ELF, SELF, PKG, or unknown and prefers ELF, so a decrypted backup is picked over the still-encrypted `eboot.bin`), then convert (with automatic import audit), inspect the per-game status, run the game (double-click), open its output directory, or remove it from the library. It reads the same `~/.config/anyps5/library.json` as the earlier shell helpers and writes the same timestamped logs under `~/.local/share/anyps5/logs/` (Windows: `%LOCALAPPDATA%\anyps5\logs`).
 
-Per-game settings apply **without reconverting**, because the engine reads them from the environment at launch: GPU device filter (`ANYPS5_GPU`), system fonts directory (`ANYPS5_SYSTEM_FONTS`), shader cache directory (defaults to `shader_cache` beside the game), disk-cache disabling, and the NGS2 voice-param dev log. A built-in input editor writes the game's `anyps5-input.ini` (`Cross`, `L1`, `ToggleFullscreen`, … bound to `KEY:`/`MOUSE:`/`WHEEL:` sources per [input mapping](INPUT_MAPPING.md)). Every step streams its output into a timestamped log under `~/.local/share/anyps5/logs/` (Linux and macOS) or `%LOCALAPPDATA%\anyps5\logs` (Windows), and the library persists in `~/.config/anyps5/library.json`. A missing tkinter exits with `FAIL: no display`.
+Per-game settings apply **without reconverting**, because the engine reads them from the environment at launch: GPU device filter (`ANYPS5_GPU`), system fonts directory (`ANYPS5_SYSTEM_FONTS`), shader cache directory (defaults to `shader_cache` beside the game), disk-cache disabling, and the NGS2 voice-param dev log. A built-in input editor writes the game's `anyps5-input.ini` (`Cross`, `L1`, `ToggleFullscreen`, … bound to `KEY:`/`MOUSE:`/`WHEEL:` sources per [input mapping](INPUT_MAPPING.md)).
 
 ```sh
-python3 tools/launcher.py
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target launcher
+./build/core/launcher/launcher
 ```
+
+`./build/core/launcher/launcher --check` runs headless (library and script sanity) for CI; `ctest -R ^launcher` runs its JSON, input-text, and dump-candidate tests.
 
 Your title converts to 411 references (`implemented 291`, `stub 41`, `module 76`, `absent 0`) and boots to presentation on this fork: rack `0x2001` audio, `sceNgs2PanInit`, `sceNgs2PanGetVolumeMatrix`, and an `app0/sce_sys/param.json` resource are implemented or staged as described in [technical debt](../dev/TechnicalDebt.md).
 

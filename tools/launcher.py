@@ -94,6 +94,78 @@ def input_candidates(dump):
     return entries
 
 
+ACTIONS = ("Cross", "Circle", "Triangle", "Square", "L1", "R1", "L2", "R2", "L3", "R3",
+           "Options", "Up", "Right", "Down", "Left",
+           "LeftStickLeft", "LeftStickRight", "LeftStickUp", "LeftStickDown",
+           "RightStickLeft", "RightStickRight", "RightStickUp", "RightStickDown",
+           "TouchLeft", "TouchRight", "ToggleMouse", "ToggleFullscreen")
+
+
+def read_title_meta(dump):
+    root = Path(dump)
+    meta = {"title": root.name, "title_id": "", "version": "", "icon": ""}
+    param = root / "sce_sys" / "param.json"
+    try:
+        data = json.loads(param.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return with_icon(root, meta)
+    meta["title_id"] = str(data.get("titleId", ""))
+    meta["version"] = str(data.get("contentVersion", ""))
+    localized = data.get("localizedParameters", {})
+    if isinstance(localized, dict):
+        entry = localized.get(localized.get("defaultLanguage", ""), {})
+        name = str(entry.get("titleName", "") if isinstance(entry, dict) else "")
+        if not name:
+            entry = localized.get("en-US", {})
+            name = str(entry.get("titleName", "") if isinstance(entry, dict) else "")
+        if name:
+            meta["title"] = name
+    return with_icon(root, meta)
+
+
+def with_icon(root, meta):
+    icon = root / "sce_sys" / "icon0.png"
+    if icon.is_file():
+        meta["icon"] = str(icon)
+    return meta
+
+
+def parse_input_text(text):
+    bindings = {action: [] for action in ACTIONS}
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line[0] in "#;":
+            continue
+        action, separator, source = line.partition("=")
+        found = next((known for known in ACTIONS if known.lower() == action.strip().lower()), None)
+        if not separator or found is None or not source.strip():
+            return None, lineno
+        bindings[found].append(source.strip())
+    return bindings, 0
+
+
+def render_input_text(bindings):
+    lines = [f"{action} = {source}" for action in ACTIONS for source in bindings.get(action, []) if source]
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def game_env(game):
+    env = dict(os.environ)
+    for key, value in (game.get("env") or {}).items():
+        if value:
+            env[key] = value
+    return env
+
+
+def default_input_path(game):
+    return Path(game["out"]) / "anyps5-input.ini"
+
+
+def input_path(game):
+    configured = (game.get("env") or {}).get("ANYPS5_INPUT_CONFIG", "")
+    return Path(configured) if configured else default_input_path(game)
+
+
 def executable_path(game):
     suffix = ".exe" if game.get("windows") else ".elf"
     return Path(game["out"]) / (Path(game["input"]).stem + suffix)
@@ -115,6 +187,7 @@ if tk is not None:
             self.intel = tk.BooleanVar(value=False)
             self.filter = tk.StringVar(value="0")
             self.candidates = []
+            self.meta = {}
             frame = ttk.Frame(self, padding=10)
             frame.pack(fill=tk.BOTH, expand=True)
             self.add_row(frame, "Name", ttk.Entry(frame, textvariable=self.name, width=44))
@@ -163,10 +236,12 @@ if tk is not None:
             if labels:
                 self.input_box.current(0)
                 self.input.set(labels[0])
+            meta = read_title_meta(picked)
             if not self.name.get():
-                self.name.set(Path(picked).name)
+                self.name.set(meta["title"])
             if not self.out.get():
                 self.out.set(str(Path.home() / "AnyPS5" / "out"))
+            self.meta = meta
 
         def pick_out(self):
             picked = filedialog.askdirectory(title="Output directory", parent=self)
@@ -191,6 +266,19 @@ if tk is not None:
             if not dump.is_dir():
                 self.error.configure(text="dump dir is missing")
                 return
+            if path is None:
+                self.error.configure(text="pick an input executable")
+                return
+            if check_dump.classify(path)["kind"] in ("self", "self-kernel", "pkg"):
+                self.error.configure(text="input is a SELF or PKG container; pick the decrypted ELF")
+                return
+            self.result = {"name": name, "dump": str(dump), "input": str(path), "out": str(out),
+                           "windows": bool(self.windows.get()), "intel": bool(self.intel.get()),
+                           "filter": self.filter.get(), "status": "", "created": timestamp(), "last_run": "",
+                           "title": self.meta.get("title", name), "title_id": self.meta.get("title_id", ""),
+                           "version": self.meta.get("version", ""), "icon": self.meta.get("icon", ""),
+                           "env": {}}
+            self.destroy()
 
     class Launcher(tk.Tk):
         def __init__(self):
@@ -208,57 +296,76 @@ if tk is not None:
         def build_ui(self):
             main = ttk.Frame(self, padding=10)
             main.pack(fill=tk.BOTH, expand=True)
-            pane = ttk.Frame(main)
-            pane.pack(fill=tk.BOTH, expand=True)
-            left = ttk.Frame(pane, width=340)
-            left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
-            left.pack_propagate(False)
-            ttk.Label(left, text="Games", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
-            self.tree = ttk.Treeview(left, columns=("name", "status", "run"), show="headings", height=16)
-            self.tree.heading("name", text="Name")
-            self.tree.heading("status", text="Status")
-            self.tree.heading("run", text="Last run")
-            self.tree.column("name", width=150)
-            self.tree.column("status", width=190)
-            self.tree.column("run", width=130)
-            scroll = ttk.Scrollbar(left, command=self.tree.yview)
-            scroll.pack(side=tk.RIGHT, fill=tk.Y)
-            self.tree.configure(yscrollcommand=scroll.set)
-            self.tree.pack(fill=tk.BOTH, expand=True, pady=4)
-            self.tree.bind("<<TreeviewSelect>>", self.on_select)
-            self.tree.bind("<Double-1>", lambda event: self.run_step("run"))
-            right = ttk.Frame(pane)
-            right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            ttk.Label(right, text="Actions", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W)
-            buttons = ttk.Frame(right)
-            buttons.pack(fill=tk.X, pady=4)
-            ttk.Button(buttons, text="Add game", command=self.add_game).pack(side=tk.LEFT, padx=2)
-            ttk.Button(buttons, text="Convert", command=lambda: self.run_step("convert")).pack(side=tk.LEFT, padx=2)
-            ttk.Button(buttons, text="Audit", command=lambda: self.run_step("audit")).pack(side=tk.LEFT, padx=2)
-            ttk.Button(buttons, text="Run", command=lambda: self.run_step("run")).pack(side=tk.LEFT, padx=2)
-            ttk.Button(buttons, text="Open output", command=self.open_output).pack(side=tk.LEFT, padx=2)
-            ttk.Button(buttons, text="Remove", command=self.remove_game).pack(side=tk.LEFT, padx=2)
-            ttk.Button(right, text="Open log dir", command=self.open_logs).pack(anchor=tk.W, pady=2)
-            self.status = ttk.Label(right, text="")
-            self.status.pack(fill=tk.X, pady=2)
-            self.log = tk.Text(main, wrap=tk.WORD, height=16)
-            self.log.pack(fill=tk.BOTH, expand=True, pady=4)
-            logscroll = ttk.Scrollbar(self.log, command=self.log.yview)
-            logscroll.pack(side=tk.RIGHT, fill=tk.Y)
-            self.log.configure(yscrollcommand=logscroll.set)
+            toolbar = ttk.Frame(main)
+            toolbar.pack(fill=tk.X, pady=(0, 6))
+            ttk.Button(toolbar, text="Add game", command=self.add_game).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Convert", command=lambda: self.run_step("convert")).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Play", command=lambda: self.run_step("run")).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Settings", command=self.open_settings).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Input", command=self.open_input).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Open output", command=self.open_output).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Remove", command=self.remove_game).pack(side=tk.LEFT, padx=2)
+            ttk.Button(toolbar, text="Logs", command=self.open_logs).pack(side=tk.RIGHT, padx=2)
+            body = ttk.PanedWindow(main, orient=tk.HORIZONTAL)
+            body.pack(fill=tk.BOTH, expand=True)
+            self.grid = ttk.Frame(body, width=620)
+            self.grid.pack_propagate(False)
+            body.add(self.grid, weight=3)
+            detail = ttk.Frame(body, width=260)
+            detail.pack_propagate(False)
+            body.add(detail, weight=1)
+            ttk.Label(detail, text="Details", font=("TkDefaultFont", 10, "bold")).pack(anchor=tk.W, pady=(0, 4))
+            self.detail = ttk.Label(detail, text="Select a game", justify=tk.LEFT, wraplength=240)
+            self.detail.pack(anchor=tk.W, fill=tk.X)
+            self.statusbar = ttk.Label(main, text="", relief=tk.SUNKEN, anchor=tk.W)
+            self.statusbar.pack(fill=tk.X, pady=(6, 0))
+            self.images = {}
 
         def refresh(self):
-            self.tree.delete(*self.tree.get_children())
+            for widget in self.grid.winfo_children():
+                widget.destroy()
+            self.images = {}
+            columns = max(1, self.grid.winfo_width() // 170)
             for index, game in enumerate(self.games):
-                self.tree.insert("", tk.END, iid=str(index),
-                                 values=(game["name"], game.get("status") or "not converted", game.get("last_run") or "never"))
-
-        def on_select(self, event):
-            selection = self.tree.selection()
-            self.selected = int(selection[0]) if selection else None
+                row, column = divmod(index, columns)
+                cell = ttk.Frame(self.grid, padding=6, relief=tk.RAISED, borderwidth=1)
+                cell.grid(row=row, column=column, padx=6, pady=6, sticky=tk.N)
+                image = self.cover(game)
+                label = ttk.Label(cell, image=image, text=game["name"], compound=tk.TOP, wraplength=140)
+                label.pack()
+                label.bind("<Button-1>", lambda event, selected=index: self.select(selected))
+                label.bind("<Double-1>", lambda event, selected=index: self.select(selected) or self.run_step("run"))
             game = self.current()
-            if game is not None:
-                self.status.configure(text=f"{game['dump']} -> {game['out']}")
+            if game is None:
+                self.detail.configure(text="Select a game")
+                self.statusbar.configure(text=f"{len(self.games)} games")
+                return
+            info = [game.get("title", game["name"]), game.get("title_id", ""), game.get("version", ""),
+                    game.get("status") or "not converted", f"last run: {game.get('last_run') or 'never'}"]
+            self.detail.configure(text="\n".join(str(part) for part in info if part))
+            self.statusbar.configure(text=f"{len(self.games)} games | {game['dump']} -> {game['out']}")
+
+        def cover(self, game):
+            icon = game.get("icon", "")
+            if icon and Path(icon).is_file():
+                try:
+                    image = tk.PhotoImage(file=icon)
+                    if image.width() > 128 or image.height() > 128:
+                        image = image.subsample(max(1, image.width() // 128), max(1, image.height() // 128))
+                    self.images[game["name"]] = image
+                    return image
+                except tk.TclError:
+                    pass
+            placeholder = tk.PhotoImage(width=128, height=128)
+            self.images[game["name"]] = placeholder
+            return placeholder
+
+        def select(self, index):
+            self.selected = index
+            self.refresh()
+        def on_select(self, event):
+            self.selected = None
+            self.refresh()
 
         def add_game(self):
             dialog = AddGameDialog(self)
@@ -336,12 +443,37 @@ if tk is not None:
             exe = executable_path(game)
             if not exe.is_file():
                 raise SystemExit(f"{exe} missing; convert first")
+            env = game.setdefault("env", {})
+            if not env.get("ANYPS5_SHADER_CACHE_DIR", ""):
+                env["ANYPS5_SHADER_CACHE_DIR"] = str(exe.parent / "shader_cache")
             args = [str(ROOT / "tools" / "run.sh"), "--game", str(exe)]
             dump = Path(game["dump"])
             if (dump / "sce_sys").is_dir():
                 args += ["--app0", str(dump)]
-            self.stream(args, ok=None)
+            self.stream(args, ok=None, env=game_env(game))
             game["last_run"] = timestamp()
+            self.emit(f"last run: {game['last_run']}")
+
+        def open_settings(self):
+            game = self.current()
+            if game is None:
+                self.emit("select a game first")
+                return
+            dialog = SettingsDialog(self, game)
+            self.wait_window(dialog)
+            if dialog.saved:
+                save_library(self.games)
+                self.refresh()
+                self.emit(f"settings saved: {game['name']}")
+
+        def open_input(self):
+            game = self.current()
+            if game is None:
+                self.emit("select a game first")
+                return
+            dialog = InputDialog(self, game)
+            self.wait_window(dialog)
+
             self.emit(f"last run: {game['last_run']}")
 
         def remove_game(self):
@@ -407,9 +539,10 @@ if tk is not None:
                 pass
             self.after(100, self.drain)
 
-        def stream(self, args, ok=(0,)):
+        def stream(self, args, ok=(0,), env=None):
             self.emit("$ " + " ".join(args))
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                                    env=env)
             for line in proc.stdout:
                 self.emit(line.rstrip())
             code = proc.wait()

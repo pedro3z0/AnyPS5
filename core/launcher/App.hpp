@@ -52,7 +52,7 @@ struct App {
     std::map<std::string, std::string> config;
     DialogBuffers dialog;
     void* renderer = nullptr;
-    std::map<std::string, std::uint32_t> icons;
+    std::map<std::string, std::uintptr_t> icons;
 
     void Load();
     void Save() const;

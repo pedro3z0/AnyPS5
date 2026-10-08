@@ -47,6 +47,10 @@ std::string LogStamp();
 
 Game ReadTitleMeta(const std::filesystem::path& dump, Game game);
 std::vector<Candidate> InputCandidates(const std::filesystem::path& dump);
+std::string ClassifyKind(const std::filesystem::path& path);
+std::filesystem::path ContainerDir(const Game& game);
+bool HostPrefersWindows();
+bool HostIsIntel();
 
 std::filesystem::path ExecutablePath(const Game& game);
 std::filesystem::path InputPath(const Game& game);

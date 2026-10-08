@@ -3,6 +3,7 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -177,9 +178,9 @@ void DrawAddDialog(App& app) {
             } else if (!std::filesystem::is_directory(dump)) {
                 app.dialog.error = "dump dir is missing";
             } else if (app.dialog.candidates.empty()) {
-                app.dialog.error = "scan the dump first";
+                app.dialog.error = "no ELF or SELF executable found in this folder or one level below";
             } else if (app.dialog.candidates[app.dialog.chosen].kind != "elf") {
-                app.dialog.error = "input is a SELF or PKG container; pick the decrypted ELF";
+                app.dialog.error = app.dialog.candidates[app.dialog.chosen].kind + " container; a decrypted ELF backup of the eboot is required";
             } else {
                 Game game = ReadTitleMeta(dump, Game{});
                 game.name = app.dialog.name;
@@ -241,7 +242,57 @@ void DrawGraphicsTab(Game& game) {
     }
 }
 
-void DrawAdvancedTab(Game& game) {
+std::string EnvToString(const std::map<std::string, std::string>& env) {
+    std::string text;
+    for (const auto& [key, value] : env) {
+        if (!text.empty()) text += "\n";
+        text += key + "=" + value;
+    }
+    return text;
+}
+
+void ApplyEnvText(App& app, Game& game) {
+    std::map<std::string, std::string> parsed;
+    int bad = 0;
+    std::stringstream stream(app.dialog.envText);
+    std::string line;
+    while (std::getline(stream, line)) {
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
+        const auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos) continue;
+        line = line.substr(first);
+        const auto equals = line.find('=');
+        if (equals == std::string::npos || equals == 0) {
+            ++bad;
+            continue;
+        }
+        std::string key = line.substr(0, equals);
+        while (!key.empty() && (key.back() == ' ' || key.back() == '\t')) key.pop_back();
+        const bool valid = !key.empty() && std::isdigit(static_cast<unsigned char>(key.front())) == 0 &&
+            std::all_of(key.begin(), key.end(), [](char value) { return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '_'; });
+        if (!valid) {
+            ++bad;
+            continue;
+        }
+        parsed[key] = line.substr(equals + 1);
+    }
+    for (const auto& [key, value] : parsed) {
+        const auto snapshot = app.dialog.envSnapshot.find(key);
+        if (snapshot == app.dialog.envSnapshot.end() || snapshot->second != value) game.env[key] = value;
+    }
+    for (const auto& [key, value] : app.dialog.envSnapshot) {
+        if (parsed.count(key) != 0) continue;
+        const auto current = game.env.find(key);
+        if (current != game.env.end() && current->second == value) game.env.erase(key);
+    }
+    app.settingsError = bad > 0 ? std::to_string(bad) + " line(s) ignored: use KEY=VALUE" : "";
+    app.dialog.envSnapshot = game.env;
+    app.dialog.envText = EnvToString(game.env);
+    app.dialog.envGame = app.selected;
+}
+
+void DrawAdvancedTab(App& app) {
+    Game& game = app.games[app.selected];
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Fonts");
     ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_SYSTEM_FONTS", game.env["ANYPS5_SYSTEM_FONTS"], "directory with SST-*.otf or Noto substitutes");
@@ -260,6 +311,15 @@ void DrawAdvancedTab(Game& game) {
 
     const auto ini = InputPath(game);
     ImGui::TextDisabled("input mapping: %s", ini.string().c_str());
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Custom environment");
+    ImGui::TextDisabled("One KEY=VALUE per line; applied when settings are saved");
+    if (app.dialog.envGame != app.selected) {
+        app.dialog.envGame = app.selected;
+        app.dialog.envSnapshot = game.env;
+        app.dialog.envText = EnvToString(game.env);
+    }
+    MultilineText("envlines", app.dialog.envText, -1.0f, 150.0f);
 }
 
 }
@@ -351,14 +411,18 @@ void DrawSettingsDialog(App& app) {
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Advanced")) {
-                DrawAdvancedTab(game);
+                DrawAdvancedTab(app);
                 ImGui::EndTabItem();
             }
             app.dialog.focusInput = false;
             ImGui::EndTabBar();
         }
         ImGui::Separator();
+        if (!app.settingsError.empty()) {
+            ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%s", app.settingsError.c_str());
+        }
         if (ImGui::Button("save settings")) {
+            ApplyEnvText(app, game);
             app.Save();
             app.dialog.showSettings = false;
         }
@@ -366,56 +430,6 @@ void DrawSettingsDialog(App& app) {
         if (ImGui::Button("cancel")) app.dialog.showSettings = false;
     }
     ImGui::End();
-}
-
-void DrawSetup(App& app) {
-    if (app.IsConfigured()) return;
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float contentWidth = std::min(avail.x - 40.0f, 760.0f);
-    ImGui::Dummy(ImVec2(0, 20));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10, 14));
-    ImGui::BeginGroup();
-    ImGui::PushTextWrapPos(contentWidth);
-    ImGui::SetWindowFontScale(1.6f);
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Welcome to AnyPS5");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextWrapped("Pick where your dumped games live and where converted output goes. "
-                       "Both can be changed later; nothing is written outside the directories you choose.");
-    ImGui::PopTextWrapPos();
-    ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Default dump folder");
-    ImGui::PushTextWrapPos(contentWidth);
-    ImGui::TextDisabled("%s", app.dialog.dump.empty() ? "no folder chosen yet" : app.dialog.dump.c_str());
-    ImGui::PopTextWrapPos();
-    if (ImGui::Button("Choose dump folder", ImVec2(220, 0))) {
-        app.dialog.browserTarget = "dump";
-        app.dialog.browserPath = app.dialog.dump.empty() ? app.Config("lastDump", "") : app.dialog.dump;
-        app.dialog.showBrowser = true;
-    }
-
-    ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Default output folder");
-    ImGui::PushTextWrapPos(contentWidth);
-    ImGui::TextDisabled("%s", app.dialog.out.empty() ? "no folder chosen yet" : app.dialog.out.c_str());
-    ImGui::PopTextWrapPos();
-    if (ImGui::Button("Choose output folder", ImVec2(220, 0))) {
-        app.dialog.browserTarget = "out";
-        app.dialog.browserPath = app.dialog.out.empty() ? app.Config("lastOut", "") : app.dialog.out;
-        app.dialog.showBrowser = true;
-    }
-
-    ImGui::Separator();
-    const bool ready = !app.dialog.dump.empty() && !app.dialog.out.empty();
-    ImGui::BeginDisabled(!ready);
-    if (ImGui::Button("Get started", ImVec2(220, 0))) {
-        app.SetConfig("lastDump", app.dialog.dump);
-        app.SetConfig("lastOut", app.dialog.out);
-        app.dialog.name = "";
-        app.dialog.showBrowser = false;
-    }
-    ImGui::EndDisabled();
-    ImGui::EndGroup();
-    ImGui::PopStyleVar();
 }
 
 void DrawDialogs(App& app) {

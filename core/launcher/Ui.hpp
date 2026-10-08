@@ -8,11 +8,11 @@ namespace Launcher {
 std::vector<std::string> EnvFields();
 std::string EnvHint(const std::string& key);
 bool TextInput(const char* label, std::string& value, const char* hint = "");
+bool MultilineText(const char* label, std::string& value, float width, float height);
 void ApplyStyle();
 
 void DrawUi(App& app, void* renderer, void* window);
 void DrawDialogs(App& app);
-void DrawSetup(App& app);
 
 }
 

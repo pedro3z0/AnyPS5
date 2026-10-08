@@ -246,7 +246,18 @@ std::string LogStamp() {
 
 Game ReadTitleMeta(const std::filesystem::path& dump, Game game) {
     game.dump = dump.string();
-    const auto param = dump / "sce_sys" / "param.json";
+    std::filesystem::path base = dump;
+    std::error_code scanError;
+    if (std::filesystem::is_directory(dump, scanError) && !std::filesystem::is_regular_file(dump / "sce_sys" / "param.json", scanError)) {
+        for (const auto& item : std::filesystem::directory_iterator(dump, scanError)) {
+            if (!item.is_directory()) continue;
+            if (std::filesystem::is_regular_file(item.path() / "sce_sys" / "param.json", scanError)) {
+                base = item.path();
+                break;
+            }
+        }
+    }
+    const auto param = base / "sce_sys" / "param.json";
     try {
         const auto value = Json::Parse(readFile(param));
         if (const Json::Value* id = value.find("titleId"); id != nullptr) game.titleId = id->asString();
@@ -268,7 +279,7 @@ Game ReadTitleMeta(const std::filesystem::path& dump, Game game) {
     } catch (const std::exception&) {
     }
     if (game.title.empty()) game.title = dump.filename().string();
-    const auto icon = dump / "sce_sys" / "icon0.png";
+    const auto icon = base / "sce_sys" / "icon0.png";
     if (std::filesystem::is_regular_file(icon)) game.icon = icon.string();
     return game;
 }
@@ -281,11 +292,66 @@ std::vector<Candidate> InputCandidates(const std::filesystem::path& dump) {
         if (!item.is_regular_file()) continue;
         entries.push_back({item.path(), classify(item.path())});
     }
+    if (entries.empty()) {
+        for (const auto& item : std::filesystem::directory_iterator(dump, error)) {
+            if (!item.is_directory()) continue;
+            std::error_code nestedError;
+            for (const auto& nested : std::filesystem::directory_iterator(item.path(), nestedError)) {
+                if (!nested.is_regular_file()) continue;
+                const std::string kind = classify(nested.path());
+                if (kind == "elf" || kind == "self" || kind == "self-kernel" || kind == "pkg") {
+                    entries.push_back({nested.path(), kind});
+                }
+            }
+        }
+    }
     std::sort(entries.begin(), entries.end(), [](const Candidate& left, const Candidate& right) {
         if ((left.kind == "elf") != (right.kind == "elf")) return left.kind == "elf";
         return lower(left.path.filename().string()) < lower(right.path.filename().string());
     });
     return entries;
+}
+
+std::string ClassifyKind(const std::filesystem::path& path) {
+    return classify(path);
+}
+
+std::filesystem::path ContainerDir(const Game& game) {
+    std::error_code error;
+    const std::filesystem::path inputParent = std::filesystem::path(game.input).parent_path();
+    for (const auto& base : {inputParent, std::filesystem::path(game.dump)}) {
+        if (!base.empty() && std::filesystem::is_directory(base / "sce_sys", error)) return base;
+    }
+    if (!inputParent.empty()) return inputParent;
+    if (std::filesystem::is_directory(game.dump, error)) {
+        for (const auto& item : std::filesystem::directory_iterator(game.dump, error)) {
+            if (item.is_directory() && std::filesystem::is_directory(item.path() / "sce_sys", error)) return item.path();
+        }
+    }
+    return std::filesystem::path(game.dump);
+}
+
+bool HostPrefersWindows() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool HostIsIntel() {
+#ifdef _WIN32
+    const char* identifier = std::getenv("PROCESSOR_IDENTIFIER");
+    if (identifier == nullptr) return false;
+    return lower(std::string(identifier)).find("intel") != std::string::npos;
+#else
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    std::string line;
+    while (std::getline(cpuinfo, line)) {
+        if (line.rfind("vendor_id", 0) == 0) return line.find("GenuineIntel") != std::string::npos;
+    }
+    return false;
+#endif
 }
 
 std::filesystem::path ExecutablePath(const Game& game) {

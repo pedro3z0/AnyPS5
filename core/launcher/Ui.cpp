@@ -28,7 +28,18 @@ void OpenAddDialog(App& app) {
     app.dialog = {};
     app.dialog.dump = app.Config("lastDump", "");
     app.dialog.out = app.Config("lastOut", "");
+    app.dialog.windows = HostPrefersWindows();
+    app.dialog.intel = HostIsIntel();
     app.dialog.showAdd = true;
+}
+
+std::string ShortPath(const std::string& path) {
+    const char* homeValue = std::getenv("HOME");
+    if (homeValue == nullptr || homeValue[0] == '\0') homeValue = std::getenv("USERPROFILE");
+    if (homeValue == nullptr || homeValue[0] == '\0') return path;
+    const std::string prefix = std::string(homeValue) + "/";
+    if (path.rfind(prefix, 0) == 0) return "~/" + path.substr(prefix.size());
+    return path;
 }
 
 }
@@ -56,6 +67,16 @@ bool TextInput(const char* label, std::string& value, const char* hint) {
     const bool changed = hint != nullptr && hint[0] != '\0'
         ? ImGui::InputTextWithHint(label, hint, buffer.data(), buffer.size())
         : ImGui::InputText(label, buffer.data(), buffer.size());
+    if (changed) value = buffer.data();
+    return changed;
+}
+
+bool MultilineText(const char* label, std::string& value, float width, float height) {
+    static std::array<char, 8192> buffer{};
+    if (std::strncmp(buffer.data(), value.c_str(), buffer.size() - 1) != 0) {
+        std::snprintf(buffer.data(), buffer.size(), "%s", value.c_str());
+    }
+    const bool changed = ImGui::InputTextMultiline(label, buffer.data(), buffer.size(), ImVec2(width, height));
     if (changed) value = buffer.data();
     return changed;
 }
@@ -340,7 +361,11 @@ void DrawDetails(App& app) {
 
 void DrawStatusBar(App& app) {
     ImGui::Separator();
-    ImGui::Text("%d games | %s", static_cast<int>(app.games.size()), app.root.c_str());
+    ImGui::Text("%d games", static_cast<int>(app.games.size()));
+    ImGui::SameLine();
+    ImGui::TextDisabled("dump: %s", ShortPath(app.Config("lastDump", "")).c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("out: %s", ShortPath(app.Config("lastOut", "")).c_str());
 }
 
 void DrawLog(App& app) {
@@ -368,15 +393,11 @@ void DrawUi(App& app, void* renderer, void* window) {
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
                                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (ImGui::Begin("AnyPS5", nullptr, flags)) {
-        if (app.IsConfigured()) {
-            DrawMenuBar(app);
-            DrawToolbar(app);
-            ImGui::Separator();
-            DrawGrid(app, renderer);
-            DrawDetails(app);
-        } else {
-            DrawSetup(app);
-        }
+        DrawMenuBar(app);
+        DrawToolbar(app);
+        ImGui::Separator();
+        DrawGrid(app, renderer);
+        DrawDetails(app);
         DrawStatusBar(app);
     }
     ImGui::End();

@@ -29,6 +29,9 @@ struct DialogBuffers {
     std::string browserPath;
     std::string browserTarget;
     std::string scanKey;
+    std::string envText;
+    std::map<std::string, std::string> envSnapshot;
+    int envGame = -1;
     bool logOpen = false;
 
 };

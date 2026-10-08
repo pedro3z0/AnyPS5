@@ -52,6 +52,27 @@ void CheckCandidates() {
     std::cout << "candidates ok\n";
 }
 
+void CheckNestedDump() {
+    const auto dump = std::filesystem::temp_directory_path() / "anyps5-nested-fixture";
+    std::error_code error;
+    std::filesystem::remove_all(dump, error);
+    std::filesystem::create_directories(dump / "APP0" / "sce_sys", error);
+    std::ofstream(dump / "APP0" / "eboot.bin", std::ios::binary) << "\x7f" "ELF" << std::string(8, '\0');
+    const auto candidates = Launcher::InputCandidates(dump);
+    assert(candidates.size() == 1);
+    assert(candidates.front().kind == "elf");
+    assert(candidates.front().path == dump / "APP0" / "eboot.bin");
+    std::ofstream(dump / "APP0" / "sce_sys" / "param.json") << "{\"titleId\":\"PPSA00000\",\"contentVersion\":\"01.000.001\"}";
+    const auto game = Launcher::ReadTitleMeta(dump, Launcher::Game{});
+    assert(game.titleId == "PPSA00000");
+    Launcher::Game withInput;
+    withInput.dump = dump.string();
+    withInput.input = (dump / "APP0" / "eboot.bin").string();
+    assert(Launcher::ContainerDir(withInput) == dump / "APP0");
+    std::filesystem::remove_all(dump, error);
+    std::cout << "nested dump ok\n";
+}
+
 void CheckToggles() {
     Launcher::Game game;
     assert(game.env.count("ANYPS5_VSYNC") == 0);
@@ -64,6 +85,7 @@ int main() {
     CheckJson();
     CheckInputText();
     CheckCandidates();
+    CheckNestedDump();
     CheckToggles();
     std::cout << "launcher tests ok\n";
 }

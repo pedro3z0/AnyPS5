@@ -75,6 +75,18 @@ std::filesystem::path newestRegistry(const std::filesystem::path& out) {
 void App::Load() {
     games = LoadLibrary();
     config = ::Launcher::LoadConfig();
+    if (Config("lastDump", "").empty() || Config("lastOut", "").empty()) {
+        const char* homeValue = std::getenv("HOME");
+        if (homeValue == nullptr || homeValue[0] == '\0') homeValue = std::getenv("USERPROFILE");
+        const std::filesystem::path base = homeValue != nullptr && homeValue[0] != '\0' ? std::filesystem::path(homeValue) : std::filesystem::current_path();
+        std::error_code error;
+        const std::filesystem::path launcher = base / "anyps5-launcher";
+        std::filesystem::create_directories(launcher / "dumps", error);
+        std::filesystem::create_directories(launcher / "games", error);
+        if (Config("lastDump", "").empty()) config["lastDump"] = (launcher / "dumps").string();
+        if (Config("lastOut", "").empty()) config["lastOut"] = (launcher / "games").string();
+        ::Launcher::SaveConfig(config);
+    }
 }
 
 void App::Save() const {
@@ -168,6 +180,11 @@ bool App::Convert(const Game& game) {
         AppendLog("FAIL: relinker binary not found beside the launcher or under " + root.string());
         return false;
     }
+    const std::string kind = ClassifyKind(std::filesystem::path(game.input));
+    if (kind != "elf") {
+        AppendLog("FAIL: " + game.input + " is " + kind + "; the relinker needs a clean ELF (decrypt the eboot first)");
+        return false;
+    }
     const auto out = std::filesystem::path(game.out);
     std::error_code error;
     std::filesystem::create_directories(out, error);
@@ -199,7 +216,7 @@ bool App::Audit(const Game& game) {
         return false;
     }
     std::vector<std::string> args = {"python3", audit.string(), registry.string(), "--libs", libs.string()};
-    const auto modules = std::filesystem::path(game.dump) / "sce_module";
+    const auto modules = ContainerDir(game) / "sce_module";
     if (std::filesystem::is_directory(modules)) {
         args.push_back("--modules");
         args.push_back(modules.string());
@@ -224,7 +241,7 @@ bool App::Launch(const Game& game) {
             std::filesystem::copy_file(item.path(), target, std::filesystem::copy_options::skip_existing, error);
         }
     }
-    const auto sys = std::filesystem::path(game.dump) / "sce_sys";
+    const auto sys = ContainerDir(game) / "sce_sys";
     if (std::filesystem::is_directory(sys, error)) {
         std::filesystem::create_directories(exe.parent_path() / "app0" / "sce_sys", error);
         for (const auto& item : std::filesystem::directory_iterator(sys)) {

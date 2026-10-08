@@ -17,93 +17,124 @@ namespace {
 
 void DrawFileBrowser(App& app) {
     if (!app.dialog.showBrowser) return;
+    const bool pickDump = app.dialog.browserTarget == "dump";
     if (app.dialog.browserPath.empty()) {
-        app.dialog.browserPath = app.Config("lastDump", "");
+        app.dialog.browserPath = app.Config(pickDump ? "lastDump" : "lastOut", "");
         if (app.dialog.browserPath.empty()) {
             const char* home = std::getenv("HOME");
             const std::filesystem::path downloads = (home != nullptr && home[0] != '\0' ? std::filesystem::path(home) / "Downloads" : std::filesystem::current_path());
             app.dialog.browserPath = std::filesystem::is_directory(downloads) ? downloads.string() : app.root.string();
         }
     }
-    if (!ImGui::Begin("Choose a folder", &app.dialog.showBrowser)) {
+    if (!ImGui::Begin(pickDump ? "Choose the dump folder" : "Choose the output folder", &app.dialog.showBrowser)) {
         ImGui::End();
         return;
     }
-    const std::filesystem::path path(app.dialog.browserPath);
     std::error_code error;
     if (ImGui::Button("up")) {
-        app.dialog.browserPath = path.parent_path().string();
+        const std::filesystem::path here(app.dialog.browserPath);
+        const std::filesystem::path parent = here.parent_path();
+        if (!parent.empty()) app.dialog.browserPath = parent.string();
     }
     ImGui::SameLine();
-    if (!std::filesystem::is_directory(path, error)) {
-        app.dialog.browserPath = path.parent_path().string();
+    ImGui::SetNextItemWidth(-1.0f);
+    TextInput("path", app.dialog.browserPath, "type a path and press enter");
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        const std::filesystem::path typed = std::filesystem::path(app.dialog.browserPath).lexically_normal();
+        if (std::filesystem::is_directory(typed, error)) app.dialog.browserPath = typed.string();
     }
-    ImGui::SetNextItemWidth(-120.0f);
-    TextInput("path", app.dialog.browserPath, "current folder");
-    ImGui::SameLine();
-    ImGui::Checkbox("files", &app.dialog.foldersOnly);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("when unchecked, files are listed for input selection");
+    if (!ImGui::IsItemActive()) {
+        const std::filesystem::path current(app.dialog.browserPath);
+        if (current.is_absolute() && !std::filesystem::is_directory(current, error)) {
+            app.dialog.browserPath = current.parent_path().string();
+        }
+    }
+    const std::filesystem::path full(app.dialog.browserPath);
+    if (full.is_absolute()) {
+        std::filesystem::path acc;
+        int crumb = 0;
+        for (const auto& part : full) {
+            const std::string label = part.string();
+            if (label.empty()) continue;
+            acc /= part;
+            if (crumb > 0) {
+                ImGui::SameLine(0, 3);
+                ImGui::TextDisabled(">");
+                ImGui::SameLine(0, 3);
+            }
+            ImGui::PushID(crumb);
+            crumb++;
+            if (ImGui::SmallButton(label.c_str())) app.dialog.browserPath = acc.string();
+            ImGui::PopID();
+        }
     }
     ImGui::Separator();
+    const std::filesystem::path path(app.dialog.browserPath);
     if (ImGui::BeginChild("entries")) {
         std::vector<std::filesystem::path> directories;
-        std::vector<std::filesystem::path> files;
         for (const auto& item : std::filesystem::directory_iterator(path, error)) {
             if (item.is_directory()) directories.push_back(item.path());
-            else if (!app.dialog.foldersOnly) files.push_back(item.path());
         }
         std::sort(directories.begin(), directories.end());
-        std::sort(files.begin(), files.end());
         for (const auto& directory : directories) {
             const std::string name = directory.filename().string();
-            if (ImGui::Selectable((name + "/").c_str())) {
-                app.dialog.browserPath = directory.string();
-            }
-        }
-        for (const auto& file : files) {
-            if (ImGui::Selectable(file.filename().string().c_str())) {
-                app.dialog.browserPath = file.string();
-            }
+            if (name.empty()) continue;
+            if (ImGui::Selectable((name + "/").c_str())) app.dialog.browserPath = directory.string();
         }
     }
     ImGui::EndChild();
     const bool isDirectory = std::filesystem::is_directory(path, error);
     ImGui::BeginDisabled(!isDirectory);
     if (ImGui::Button("use this folder", ImVec2(200, 0))) {
-        if (app.dialog.browserPath.rfind("dump:", 0) == 0) app.dialog.dump = app.dialog.browserPath.substr(5);
-        else if (app.dialog.browserPath.rfind("out:", 0) == 0) app.dialog.out = app.dialog.browserPath.substr(4);
-        else app.dialog.out = app.dialog.browserPath;
+        if (pickDump) app.dialog.dump = path.string();
+        else app.dialog.out = path.string();
         app.dialog.browserPath.clear();
+        app.dialog.browserTarget.clear();
         app.dialog.showBrowser = false;
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("cancel")) {
         app.dialog.browserPath.clear();
+        app.dialog.browserTarget.clear();
         app.dialog.showBrowser = false;
     }
     ImGui::End();
 }
+
 
 void DrawAddDialog(App& app) {
     if (!app.dialog.showAdd) return;
     if (ImGui::Begin("Add game", &app.dialog.showAdd, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::SetNextItemWidth(420.0f);
         TextInput("name", app.dialog.name, "display name (defaults to the dump title)");
+        ImGui::SetNextItemWidth(420.0f);
+        TextInput("dump", app.dialog.dump, "folder containing the dumped game");
         ImGui::SameLine();
         if (ImGui::Button("browse dump")) {
-            app.dialog.browserPath = "dump:" + (app.dialog.dump.empty() ? app.root.string() : app.dialog.dump);
+            app.dialog.browserPath = app.dialog.dump.empty() ? app.Config("lastDump", "") : app.dialog.dump;
+            if (app.dialog.browserPath.empty()) app.dialog.browserPath = app.root.string();
+            app.dialog.browserTarget = "dump";
             app.dialog.showBrowser = true;
         }
-        ImGui::TextDisabled("%s", app.dialog.dump.c_str());
+        if (app.dialog.scanKey != app.dialog.dump) {
+            app.dialog.scanKey = app.dialog.dump;
+            app.dialog.candidates = InputCandidates(app.dialog.dump);
+            app.dialog.chosen = 0;
+            const std::filesystem::path dumpDir(app.dialog.dump);
+            if (app.dialog.name.empty() && std::filesystem::is_directory(dumpDir)) {
+                app.dialog.name = ReadTitleMeta(dumpDir, Game{}).title;
+            }
+        }
         if (ImGui::Button("scan")) {
+            app.dialog.scanKey = app.dialog.dump;
             app.dialog.candidates = InputCandidates(app.dialog.dump);
             const auto game = ReadTitleMeta(std::filesystem::path(app.dialog.dump), Game{});
             if (app.dialog.name.empty()) app.dialog.name = game.title;
             app.dialog.chosen = 0;
         }
         ImGui::SameLine();
+
         if (app.dialog.candidates.empty()) {
             ImGui::TextDisabled("no files scanned");
         } else {
@@ -123,9 +154,12 @@ void DrawAddDialog(App& app) {
         TextInput("out", app.dialog.out, "output directory for the converted game");
         ImGui::SameLine();
         if (ImGui::Button("browse out")) {
-            app.dialog.browserPath = "out:" + (app.dialog.out.empty() ? app.root.string() : app.dialog.out);
+            app.dialog.browserPath = app.dialog.out.empty() ? app.Config("lastOut", "") : app.dialog.out;
+            if (app.dialog.browserPath.empty()) app.dialog.browserPath = app.root.string();
+            app.dialog.browserTarget = "out";
             app.dialog.showBrowser = true;
         }
+
         ImGui::Checkbox("windows", &app.dialog.windows);
         ImGui::SameLine();
         ImGui::Checkbox("intel", &app.dialog.intel);
@@ -171,8 +205,8 @@ void DrawAddDialog(App& app) {
         }
     }
     ImGui::End();
-    DrawFileBrowser(app);
 }
+
 
 bool Toggle(Game& game, const char* key, bool active) {
     const auto it = game.env.find(key);
@@ -193,10 +227,11 @@ void DrawGraphicsTab(Game& game) {
     }
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Shaders");
-    ImGui::SetNextItemWidth(400.0f);
+    ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_GPU", game.env["ANYPS5_GPU"], "Vulkan device name filter, e.g. RX 580 or NVIDIA");
-    ImGui::SetNextItemWidth(400.0f);
+    ImGui::SetNextItemWidth(-1.0f);
     TextInput("shader cache dir", game.env["ANYPS5_SHADER_CACHE_DIR"], "defaults to shader_cache beside the game");
+
     bool cache = game.env.find("ANYPS5_NO_SHADER_CACHE") == game.env.end() || game.env.at("ANYPS5_NO_SHADER_CACHE").empty();
     if (ImGui::Checkbox("disk shader cache", &cache)) Toggle(game, "ANYPS5_NO_SHADER_CACHE", cache);
     bool stats = game.env.count("APS5_PIPELINE_STATS") != 0 && !game.env.at("APS5_PIPELINE_STATS").empty();
@@ -208,8 +243,9 @@ void DrawGraphicsTab(Game& game) {
 
 void DrawAdvancedTab(Game& game) {
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Fonts");
-    ImGui::SetNextItemWidth(400.0f);
+    ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_SYSTEM_FONTS", game.env["ANYPS5_SYSTEM_FONTS"], "directory with SST-*.otf or Noto substitutes");
+
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Logging");
     bool trace = game.env.count("ANYPS5_NGS2_TRACE") != 0 && !game.env.at("ANYPS5_NGS2_TRACE").empty();
@@ -219,8 +255,9 @@ void DrawAdvancedTab(Game& game) {
     }
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Other");
-    ImGui::SetNextItemWidth(400.0f);
+    ImGui::SetNextItemWidth(-1.0f);
     TextInput("ANYPS5_ENTITLEMENTS", game.env["ANYPS5_ENTITLEMENTS"], "entitlements file path");
+
     const auto ini = InputPath(game);
     ImGui::TextDisabled("input mapping: %s", ini.string().c_str());
 }
@@ -238,7 +275,8 @@ void DrawInputTab(App& app, Game& game) {
     }
     ParseInputText(text, bindings, bad);
     ImGui::TextDisabled("Bind sources as KEY:Value, MOUSE:Left or WHEEL:Up; see INPUT_MAPPING.md");
-    if (ImGui::BeginChild("actions")) {
+    if (ImGui::BeginChild("actions", ImVec2(0, 300))) {
+
         for (const auto& action : InputActions()) {
             ImGui::PushID(action.c_str());
             std::string value;
@@ -246,8 +284,9 @@ void DrawInputTab(App& app, Game& game) {
                 if (!value.empty()) value += ", ";
                 value += source;
             }
-            ImGui::SetNextItemWidth(320.0f);
+            ImGui::SetNextItemWidth(-1.0f);
             TextInput(action.c_str(), value, "e.g. KEY:F or MOUSE:Left");
+
             bindings[action].clear();
             std::stringstream stream(value);
             std::string part;
@@ -264,7 +303,7 @@ void DrawInputTab(App& app, Game& game) {
     if (!app.inputError.empty()) {
         ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f), "%s", app.inputError.c_str());
     }
-    if (ImGui::Button("save")) {
+    if (ImGui::Button("save input")) {
         app.inputError.clear();
         for (const auto& [action, sources] : bindings) {
             for (const auto& source : sources) {
@@ -282,7 +321,10 @@ void DrawInputTab(App& app, Game& game) {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("close")) app.dialog.showSettings = false;
+    if (ImGui::Button("reset input")) {
+        std::error_code error;
+        std::filesystem::remove(ini, error);
+    }
 }
 
 void DrawSettingsDialog(App& app) {
@@ -292,17 +334,19 @@ void DrawSettingsDialog(App& app) {
         return;
     }
     auto& game = app.games[app.selected];
-    if (ImGui::Begin("Settings", &app.dialog.showSettings, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::SetNextWindowSize(ImVec2(560, 520), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Settings", &app.dialog.showSettings)) {
+
         ImGui::TextColored(ImVec4(0.902f, 0.925f, 0.953f, 1.0f), "%s", game.title.c_str());
         ImGui::Separator();
         if (ImGui::BeginTabBar("settings")) {
+            const bool wantInput = app.dialog.focusInput;
+            app.dialog.focusInput = false;
             if (ImGui::BeginTabItem("Graphics")) {
                 DrawGraphicsTab(game);
                 ImGui::EndTabItem();
             }
-            const ImGuiTabItemFlags inputFlags = app.dialog.focusInput ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
-            app.dialog.focusInput = false;
-            if (ImGui::BeginTabItem("Input", nullptr, inputFlags)) {
+            if (ImGui::BeginTabItem("Input", nullptr, wantInput ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None)) {
                 DrawInputTab(app, game);
                 ImGui::EndTabItem();
             }
@@ -310,10 +354,11 @@ void DrawSettingsDialog(App& app) {
                 DrawAdvancedTab(game);
                 ImGui::EndTabItem();
             }
+            app.dialog.focusInput = false;
             ImGui::EndTabBar();
         }
         ImGui::Separator();
-        if (ImGui::Button("save")) {
+        if (ImGui::Button("save settings")) {
             app.Save();
             app.dialog.showSettings = false;
         }
@@ -343,20 +388,22 @@ void DrawSetup(App& app) {
     ImGui::TextDisabled("%s", app.dialog.dump.empty() ? "no folder chosen yet" : app.dialog.dump.c_str());
     ImGui::PopTextWrapPos();
     if (ImGui::Button("Choose dump folder", ImVec2(220, 0))) {
-        app.dialog.showBrowser = true;
+        app.dialog.browserTarget = "dump";
         app.dialog.browserPath = app.dialog.dump.empty() ? app.Config("lastDump", "") : app.dialog.dump;
-        app.dialog.foldersOnly = true;
+        app.dialog.showBrowser = true;
     }
+
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.4f, 0.67f, 0.97f, 1.0f), "Default output folder");
     ImGui::PushTextWrapPos(contentWidth);
     ImGui::TextDisabled("%s", app.dialog.out.empty() ? "no folder chosen yet" : app.dialog.out.c_str());
     ImGui::PopTextWrapPos();
     if (ImGui::Button("Choose output folder", ImVec2(220, 0))) {
-        app.dialog.showBrowser = true;
+        app.dialog.browserTarget = "out";
         app.dialog.browserPath = app.dialog.out.empty() ? app.Config("lastOut", "") : app.dialog.out;
-        app.dialog.foldersOnly = true;
+        app.dialog.showBrowser = true;
     }
+
     ImGui::Separator();
     const bool ready = !app.dialog.dump.empty() && !app.dialog.out.empty();
     ImGui::BeginDisabled(!ready);

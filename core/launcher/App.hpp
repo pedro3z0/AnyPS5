@@ -13,26 +13,24 @@
 namespace Launcher {
 
 struct DialogBuffers {
-    std::string name = "name";
-    std::string dump = "dump dir";
-    std::string input = "input";
-    std::string out = "out dir";
+    std::string name;
+    std::string dump;
+    std::string out;
     std::string error;
     std::vector<Candidate> candidates;
     int chosen = 0;
     bool windows = false;
     bool intel = false;
     int filter = 0;
-    std::string inputText = "KEY:F, KEY:Space";
-    int inputAction = 0;
-    std::string cache = "shader_cache dir";
     bool showAdd = false;
     bool showSettings = false;
     bool focusInput = false;
     bool showBrowser = false;
     std::string browserPath;
-    bool foldersOnly = true;
+    std::string browserTarget;
+    std::string scanKey;
     bool logOpen = false;
+
 };
 
 struct App {

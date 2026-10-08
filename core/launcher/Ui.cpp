@@ -24,7 +24,15 @@ namespace {
 constexpr int kCellWidth = 168;
 constexpr int kIconSize = 128;
 
+void OpenAddDialog(App& app) {
+    app.dialog = {};
+    app.dialog.dump = app.Config("lastDump", "");
+    app.dialog.out = app.Config("lastOut", "");
+    app.dialog.showAdd = true;
 }
+
+}
+
 
 std::vector<std::string> EnvFields() {
     return {"ANYPS5_GPU", "ANYPS5_SYSTEM_FONTS", "ANYPS5_SHADER_CACHE_DIR", "ANYPS5_NO_SHADER_CACHE", "ANYPS5_NGS2_TRACE"};
@@ -40,8 +48,8 @@ std::string EnvHint(const std::string& key) {
 }
 
 bool TextInput(const char* label, std::string& value, const char* hint) {
-    static std::map<std::uintptr_t, std::array<char, 512>> buffers;
-    auto& buffer = buffers[reinterpret_cast<std::uintptr_t>(&value)];
+    static std::map<ImGuiID, std::array<char, 512>> buffers;
+    auto& buffer = buffers[ImGui::GetID(label)];
     if (std::strncmp(buffer.data(), value.c_str(), buffer.size() - 1) != 0) {
         std::snprintf(buffer.data(), buffer.size(), "%s", value.c_str());
     }
@@ -173,12 +181,8 @@ void LoadIcon(App& app, const Game& game, void* renderer) {
 void DrawMenuBar(App& app) {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Add game")) {
-                app.dialog = {};
-                app.dialog.dump = app.Config("lastDump", "");
-                app.dialog.out = app.Config("lastOut", "");
-                app.dialog.showAdd = true;
-            }
+            if (ImGui::MenuItem("Add game")) OpenAddDialog(app);
+
             ImGui::Separator();
             if (ImGui::MenuItem("Quit")) app.exitRequested = true;
             ImGui::EndMenu();
@@ -199,9 +203,14 @@ void DrawToolbar(App& app) {
         app.Audit(*selected);
     }
     ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.176f, 0.549f, 0.937f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.227f, 0.627f, 0.980f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.141f, 0.435f, 0.745f, 1.0f));
     if (ImGui::Button("Play") && selected != nullptr) app.Launch(*selected);
+    ImGui::PopStyleColor(3);
     ImGui::SameLine();
     if (ImGui::Button("Audit") && selected != nullptr) app.Audit(*selected);
+
     ImGui::SameLine();
     if (ImGui::Button("Settings")) app.dialog.showSettings = true;
     ImGui::SameLine();
@@ -223,12 +232,8 @@ void DrawToolbar(App& app) {
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(app.busy);
-    if (ImGui::Button("Add game")) {
-        app.dialog = {};
-        app.dialog.dump = app.Config("lastDump", "");
-        app.dialog.out = app.Config("lastOut", "");
-        app.dialog.showAdd = true;
-    }
+    if (ImGui::Button("Add game")) OpenAddDialog(app);
+
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Logs")) app.dialog.logOpen = !app.dialog.logOpen;
@@ -293,8 +298,11 @@ void DrawGrid(App& app, void* renderer) {
             ImGui::TableSetColumnIndex(0);
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.549f, 0.573f, 0.616f, 1.0f), "No games yet");
-            ImGui::TextDisabled("Use Add game to pick a dump directory");
+            ImGui::TextDisabled("Add a dumped game to convert, audit and play it here");
+            ImGui::Spacing();
+            if (ImGui::Button("Add your first game", ImVec2(220, 0))) OpenAddDialog(app);
         }
+
         ImGui::EndTable();
     }
     ImGui::EndChild();

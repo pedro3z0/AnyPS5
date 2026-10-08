@@ -62,13 +62,16 @@ int Launch(int argc, char** argv) {
         height = std::max(640, std::stoi(app.Config("windowH", "800")));
     } catch (const std::exception&) {
     }
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = SDL_CreateWindow("AnyPS5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
                                           SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (window != nullptr) {
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        if (renderer == nullptr) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
         if (renderer == nullptr) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
+
     if (window == nullptr || renderer == nullptr) {
         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
         if (window != nullptr) SDL_DestroyWindow(window);

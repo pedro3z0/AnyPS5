@@ -29,6 +29,18 @@ std::filesystem::path FindRoot(const std::filesystem::path& executable) {
     return executable.parent_path();
 }
 
+std::filesystem::path SelfPath(const char* argv0) {
+#ifdef __linux__
+    std::error_code error;
+    const auto fromProc = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (!error) return fromProc;
+#endif
+    const std::filesystem::path invoked = std::filesystem::absolute(argv0 != nullptr && argv0[0] != '\0' ? argv0 : "anyps5-launcher");
+    std::error_code resolveError;
+    const auto resolved = std::filesystem::weakly_canonical(invoked, resolveError);
+    return resolveError ? invoked : resolved;
+}
+
 int Check(const std::filesystem::path& root) {
     const auto games = LoadLibrary();
     std::cout << "library: " << games.size() << " games\n";
@@ -47,8 +59,8 @@ int Check(const std::filesystem::path& root) {
 
 int Launch(int argc, char** argv) {
     App app;
-    app.executableDir = std::filesystem::absolute(argc > 0 ? argv[0] : "launcher").parent_path();
-    app.root = FindRoot(app.executableDir / "launcher");
+    app.executableDir = SelfPath(argc > 0 ? argv[0] : nullptr).parent_path();
+    app.root = FindRoot(app.executableDir / "anyps5-launcher");
     if (argc > 1 && std::string(argv[1]) == "--version") {
         std::cout << ANYPS5_VERSION << "\n";
         return 0;

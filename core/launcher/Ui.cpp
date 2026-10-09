@@ -47,6 +47,27 @@ std::string ShortPath(const std::string& path) {
     return path;
 }
 
+ImVec4 HealthColor(const Game& game) {
+    if (game.auditAbsent > 0 || game.auditMissing > 0) return ImVec4(0.95f, 0.35f, 0.35f, 1.0f);
+    if (!game.lastError.empty()) return ImVec4(0.95f, 0.6f, 0.2f, 1.0f);
+    if (game.auditTotal >= 0 && game.auditAbsent >= 0 && game.auditMissing >= 0) {
+        if (game.auditStub > 0) return ImVec4(0.95f, 0.6f, 0.2f, 1.0f);
+        return ImVec4(0.35f, 0.85f, 0.5f, 1.0f);
+    }
+    return ImVec4(0.549f, 0.573f, 0.616f, 1.0f);
+}
+
+std::string HealthText(const Game& game) {
+    if (game.auditAbsent > 0 || game.auditMissing > 0) return "cannot start";
+    if (!game.lastError.empty()) return "crashed last run";
+    if (game.auditTotal >= 0 && game.auditAbsent >= 0 && game.auditMissing >= 0) {
+        if (game.auditStub > 0) return "ready, " + std::to_string(game.auditStub) + " stubs";
+        return "ready";
+    }
+    if (game.status.empty()) return "not converted";
+    return game.status;
+}
+
 }
 
 void DrawGlyph(Glyph glyph, ImDrawList* draw, const ImVec2& origin, float size, ImU32 color) {
@@ -311,7 +332,8 @@ void DrawToolbar(App& app) {
     ImGui::SameLine();
     ImGui::TextDisabled("%s", ANYPS5_VERSION);
     ImGui::SameLine();
-    ImGui::BeginDisabled(app.busy || selected == nullptr);
+    const bool locked = app.busy || app.runningGame >= 0;
+    ImGui::BeginDisabled(locked || selected == nullptr);
     if (IconButton("##convert", "Convert", Glyph::Convert) && selected != nullptr) {
         app.Convert(app.selected);
     }
@@ -352,7 +374,7 @@ void DrawToolbar(App& app) {
         ImGui::GetWindowDrawList()->AddLine(ImVec2(barOrigin.x + style.ItemSpacing.x, barOrigin.y + 3.0f), ImVec2(barOrigin.x + style.ItemSpacing.x, barOrigin.y + barHeight - 3.0f), ImGui::GetColorU32(ImGuiCol_Separator));
     }
     ImGui::SameLine();
-    ImGui::BeginDisabled(app.busy);
+    ImGui::BeginDisabled(locked);
     if (IconButton("##addgame", "Add game", Glyph::Plus)) OpenAddDialog(app);
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -362,7 +384,11 @@ void DrawToolbar(App& app) {
     ImGui::SameLine();
     if (IconButton("##quit", "", Glyph::Close)) app.exitRequested = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quit");
-    if (app.busy) {
+    if (app.runningGame >= 0 && app.runningGame < static_cast<int>(app.games.size())) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "playing %s", app.games[app.runningGame].title.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("close the game before converting or auditing");
+    } else if (app.busy) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.2f, 1.0f), "%s running...", app.lastCommand.c_str());
     }
@@ -401,7 +427,18 @@ void DrawCard(App& app, int index, void* renderer) {
     if (!game.titleId.empty()) {
         ImGui::TextDisabled("%s", game.titleId.c_str());
     }
-    ImGui::TextDisabled("%s", game.status.empty() ? "not converted" : game.status.c_str());
+    const bool isRunning = app.IsRunning(index);
+    const std::string health = isRunning ? "running" : HealthText(game);
+    const ImVec4 healthColor = isRunning ? ImVec4(0.039f, 0.518f, 1.0f, 1.0f) : HealthColor(game);
+    ImGui::TextColored(healthColor, "%s", health.c_str());
+    if (ImGui::IsItemHovered() && (!game.auditSummary.empty() || !game.lastError.empty())) {
+        std::string tip = game.auditSummary;
+        if (!game.lastError.empty()) {
+            if (!tip.empty()) tip += "\n";
+            tip += game.lastError;
+        }
+        ImGui::SetTooltip("%s", tip.c_str());
+    }
     ImGui::EndGroup();
     const ImVec2 cardEnd(cardStart.x + 148.0f, ImGui::GetCursorScreenPos().y);
     ImDrawList* cardDraw = ImGui::GetWindowDrawList();
@@ -411,6 +448,9 @@ void DrawCard(App& app, int index, void* renderer) {
     } else if (ImGui::IsMouseHoveringRect(cardStart, cardEnd)) {
         cardDraw->AddRect(cardStart, cardEnd, IM_COL32(255, 255, 255, 36), 13.0f, 0, 1.0f);
     }
+    const ImU32 dot = IM_COL32(static_cast<int>(healthColor.x * 255.0f), static_cast<int>(healthColor.y * 255.0f), static_cast<int>(healthColor.z * 255.0f), 255);
+    cardDraw->AddCircleFilled(ImVec2(cardStart.x + kIconSize - 7.0f, cardStart.y + 7.0f), 5.0f, dot);
+    cardDraw->AddCircle(ImVec2(cardStart.x + kIconSize - 7.0f, cardStart.y + 7.0f), 5.0f, IM_COL32(10, 13, 18, 220), 0, 1.5f);
     ImGui::PopID();
 }
 
@@ -458,6 +498,29 @@ void DrawDetails(App& app, float height) {
         ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Status");
         ImGui::TextWrapped("%s", game.status.empty() ? "not converted" : game.status.c_str());
         ImGui::TextDisabled("Last run: %s", game.lastRun.empty() ? "never" : game.lastRun.c_str());
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Health");
+        if (game.auditTotal >= 0) {
+            ImGui::TextDisabled("Imports: %d unique", game.auditTotal);
+            if (game.auditAbsent > 0) {
+                ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "%d imports have no implementation", game.auditAbsent);
+            }
+            if (game.auditMissing > 0) {
+                ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "%d libraries were not found", game.auditMissing);
+            }
+            if (game.auditStub > 0) {
+                ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.2f, 1.0f), "%d stubs throw if called", game.auditStub);
+            }
+            if (game.auditAbsent == 0 && game.auditMissing == 0 && game.auditStub <= 0) {
+                ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.5f, 1.0f), "every import resolves");
+            }
+            if (!game.auditSummary.empty()) ImGui::TextWrapped("%s", game.auditSummary.c_str());
+        } else {
+            ImGui::TextDisabled("not audited yet; run Audit to check");
+        }
+        if (!game.lastError.empty()) {
+            ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.2f, 1.0f), "Last run failed: %s", game.lastError.c_str());
+        }
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Paths");
         ImGui::TextDisabled("Dump: %s", game.dump.c_str());

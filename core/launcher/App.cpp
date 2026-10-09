@@ -1,6 +1,7 @@
 #include "App.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -81,6 +82,25 @@ std::filesystem::path newestRegistry(const std::filesystem::path& out) {
     return newest;
 }
 
+void CollectModuleDirs(const std::filesystem::path& dir, int depth, std::vector<std::filesystem::path>& out) {
+    if (depth < 0 || out.size() >= 12) return;
+    std::error_code scanError;
+    bool hasPrx = false;
+    std::vector<std::filesystem::path> children;
+    std::filesystem::directory_iterator it(dir, scanError);
+    const std::filesystem::directory_iterator end;
+    for (; it != end && !scanError; it.increment(scanError)) {
+        if (it->is_directory()) {
+            children.push_back(it->path());
+        } else if (it->path().extension() == ".prx") {
+            hasPrx = true;
+        }
+    }
+    if (scanError) return;
+    if (hasPrx) out.push_back(dir);
+    for (const auto& child : children) CollectModuleDirs(child, depth - 1, out);
+}
+
 }
 
 void App::Load() {
@@ -102,8 +122,12 @@ void App::Load() {
 }
 
 void App::Save() const {
-    std::lock_guard<std::mutex> lock(gamesMutex);
-    SaveLibrary(games);
+    std::vector<Game> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(gamesMutex);
+        snapshot = games;
+    }
+    SaveLibrary(snapshot);
 }
 
 void App::SaveConfig() {
@@ -222,17 +246,45 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
 #else
             const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 #endif
-            if (code != 0) {
-                const std::string failure = "command exited with code " + std::to_string(code);
+            bool auditReport = false;
+            if (label == "audit") {
+                for (const auto& row : lines) {
+                    if (row.find("unique imports") != std::string::npos) {
+                        auditReport = true;
+                        break;
+                    }
+                }
+            }
+            const bool auditResult = label == "audit" && code == 1 && auditReport;
+            std::string runOutcome;
+            if (code != 0 && !auditResult) {
+                const std::string failure = label == "run"
+                    ? "the game exited with code " + std::to_string(code)
+                    : "command exited with code " + std::to_string(code);
                 AppendLog("FAIL: " + failure);
-                std::lock_guard<std::mutex> guard(logMutex);
-                lastFailure = failure;
-                lastFailed = true;
+                {
+                    std::lock_guard<std::mutex> guard(logMutex);
+                    lastFailure = failure;
+                    lastFailed = true;
+                }
+                runOutcome = failure;
             } else {
+                if (auditResult) AppendLog("audit reported unresolved imports; see the report above");
                 ok = true;
                 UpdateGameStatus(label, lines);
             }
+            if (label == "run") {
+                {
+                    std::lock_guard<std::mutex> guard(gamesMutex);
+                    if (commandGame >= 0 && commandGame < static_cast<int>(games.size())) {
+                        games[commandGame].lastRun = Timestamp();
+                        games[commandGame].lastError = runOutcome;
+                    }
+                }
+                Save();
+            }
         }
+        if (label == "run") runningGame = -1;
         busy = false;
         if (label == "convert" && ok) Audit(commandGame);
     }).detach();
@@ -240,6 +292,14 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
 
 bool App::Convert(int index) {
     if (index < 0 || index >= static_cast<int>(games.size())) return false;
+    if (runningGame >= 0) {
+        Fail("a game is running; close it before converting");
+        return false;
+    }
+    if (busy) {
+        Fail("another task is already running");
+        return false;
+    }
     const auto relinker = RelinkerPath();
     if (relinker.empty()) {
         Fail("relinker binary not found beside the launcher or under " + root.string());
@@ -268,6 +328,14 @@ bool App::Convert(int index) {
 
 bool App::Audit(int index) {
     if (index < 0 || index >= static_cast<int>(games.size())) return false;
+    if (runningGame >= 0) {
+        Fail("a game is running; close it before auditing");
+        return false;
+    }
+    if (busy) {
+        Fail("another task is already running");
+        return false;
+    }
     const Game& game = games[index];
     const auto registry = newestRegistry(std::filesystem::path(game.out));
     if (registry.empty()) {
@@ -285,10 +353,21 @@ bool App::Audit(int index) {
         return false;
     }
     std::vector<std::string> args = {"python3", audit.string(), registry.string(), "--libs", libs.string()};
-    const auto modules = ContainerDir(game) / "sce_module";
-    if (std::filesystem::is_directory(modules)) {
+    const auto container = ContainerDir(game);
+    std::vector<std::filesystem::path> moduleDirs;
+    std::error_code scanError;
+    if (std::filesystem::is_directory(container, scanError)) {
+        std::filesystem::directory_iterator it(container, scanError);
+        const std::filesystem::directory_iterator end;
+        for (; it != end && !scanError; it.increment(scanError)) {
+            if (!it->is_directory()) continue;
+            CollectModuleDirs(it->path(), 1, moduleDirs);
+        }
+    }
+    std::sort(moduleDirs.begin(), moduleDirs.end());
+    for (const auto& dir : moduleDirs) {
         args.push_back("--modules");
-        args.push_back(modules.string());
+        args.push_back(dir.string());
     }
     commandGame = index;
     StartCommand("audit", args, {});
@@ -297,7 +376,24 @@ bool App::Audit(int index) {
 
 bool App::Launch(int index) {
     if (index < 0 || index >= static_cast<int>(games.size())) return false;
+    if (runningGame >= 0) {
+        Fail("a game is already running; close it before starting another");
+        return false;
+    }
+    if (busy) {
+        Fail("another task is already running; wait for it to finish");
+        return false;
+    }
     const Game& game = games[index];
+    if (game.auditAbsent > 0 || game.auditMissing > 0) {
+        std::string message = game.title + " cannot start: ";
+        if (game.auditAbsent > 0) message += std::to_string(game.auditAbsent) + " imports have no implementation";
+        if (game.auditAbsent > 0 && game.auditMissing > 0) message += " and ";
+        if (game.auditMissing > 0) message += std::to_string(game.auditMissing) + " libraries were not found in the dump or the built libs";
+        message += "; run Audit after adding the missing modules";
+        Fail(message);
+        return false;
+    }
     const auto exe = ExecutablePath(game);
     if (!std::filesystem::is_regular_file(exe)) {
         Fail(exe.string() + " missing; convert first");
@@ -316,12 +412,18 @@ bool App::Launch(int index) {
             std::filesystem::copy_file(item.path(), target, std::filesystem::copy_options::skip_existing, error);
         }
     }
-    const auto sys = ContainerDir(game) / "sce_sys";
-    if (std::filesystem::is_directory(sys, error)) {
-        std::filesystem::create_directories(exe.parent_path() / "app0" / "sce_sys", error);
-        for (const auto& item : std::filesystem::directory_iterator(sys)) {
-            const auto target = exe.parent_path() / "app0" / "sce_sys" / item.path().filename();
-            std::filesystem::copy(item.path(), target, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
+    const auto container = ContainerDir(game);
+    if (std::filesystem::is_directory(container, error)) {
+        std::error_code dirError;
+        std::filesystem::create_directories(exe.parent_path() / "app0", error);
+        std::filesystem::directory_iterator it(container, dirError);
+        const std::filesystem::directory_iterator end;
+        for (; it != end && !dirError; it.increment(dirError)) {
+            if (!it->is_directory()) continue;
+            const auto name = it->path().filename().string();
+            if (name.empty() || name[0] == '.') continue;
+            std::filesystem::copy(it->path(), exe.parent_path() / "app0" / name,
+                std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing, error);
         }
     }
     std::map<std::string, std::string> env = GameEnv(game);
@@ -329,6 +431,7 @@ bool App::Launch(int index) {
         env["ANYPS5_SHADER_CACHE_DIR"] = (exe.parent_path() / "shader_cache").string();
     }
     commandGame = index;
+    runningGame = index;
 #ifdef _WIN32
     StartCommand("run", {exe.string()}, env);
 #else
@@ -341,20 +444,26 @@ void App::SpawnDetached(const std::string& label, const std::string& exe, const 
     if (busy) return;
     busy = true;
     lastCommand = label;
-    AppendLog("$ " + label);
-    std::thread([this, exe, env] {
+    const auto log = LogDirectory() / (LogStamp() + "-run.log");
+    lastLog = log.string();
+    std::error_code logError;
+    std::filesystem::create_directories(LogDirectory(), logError);
+    AppendLog("$ " + label + " " + exe);
+    std::thread([this, exe, env, log] {
         int errfd[2];
         if (pipe(errfd) != 0) {
-            AppendLog("FAIL: could not create status pipe");
+            Fail("could not create a status pipe for " + exe);
+            runningGame = -1;
             busy = false;
             return;
         }
         fcntl(errfd[1], F_SETFD, FD_CLOEXEC);
         const pid_t pid = fork();
         if (pid < 0) {
-            AppendLog("FAIL: fork failed");
             close(errfd[0]);
             close(errfd[1]);
+            Fail("fork failed while starting " + exe);
+            runningGame = -1;
             busy = false;
             return;
         }
@@ -362,11 +471,15 @@ void App::SpawnDetached(const std::string& label, const std::string& exe, const 
             setsid();
             close(errfd[0]);
             const int devnull = open("/dev/null", O_RDWR);
+            const int logfd = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (devnull >= 0) {
                 dup2(devnull, 0);
-                dup2(devnull, 1);
-                dup2(devnull, 2);
                 if (devnull > 2) close(devnull);
+            }
+            if (logfd >= 0) {
+                dup2(logfd, 1);
+                dup2(logfd, 2);
+                if (logfd > 2) close(logfd);
             }
             const int keep = errfd[1];
             for (int fd = 3; fd < 4096; ++fd) {
@@ -390,38 +503,119 @@ void App::SpawnDetached(const std::string& label, const std::string& exe, const 
         const ssize_t count = read(errfd[0], &err, sizeof(err));
         close(errfd[0]);
         if (count == static_cast<ssize_t>(sizeof(err))) {
-            AppendLog("FAIL: " + exe + ": " + std::strerror(err));
-            std::lock_guard<std::mutex> guard(logMutex);
-            lastFailure = std::string("could not start ") + exe + ": " + std::strerror(err);
-            lastFailed = true;
-        } else if (commandGame >= 0 && commandGame < static_cast<int>(games.size())) {
+            const std::string failure = "could not start " + exe + ": " + std::strerror(err);
             {
                 std::lock_guard<std::mutex> guard(gamesMutex);
-                games[commandGame].lastRun = Timestamp();
+                if (commandGame >= 0 && commandGame < static_cast<int>(games.size())) {
+                    games[commandGame].lastError = failure;
+                }
             }
             Save();
+            Fail(failure);
+            runningGame = -1;
+            busy = false;
+            return;
         }
+        AppendLog("game started: " + exe);
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+        }
+        std::string outcome;
+        if (WIFSIGNALED(status)) {
+            const int sig = WTERMSIG(status);
+            std::string name;
+            if (sig == 11) name = " (segmentation fault)";
+            else if (sig == 6) name = " (abort)";
+            else if (sig == 7) name = " (bus error)";
+            else if (sig == 8) name = " (floating point exception)";
+            else if (sig == 4) name = " (illegal instruction)";
+            outcome = "the game was terminated by signal " + std::to_string(sig) + name;
+        } else if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            outcome = "the game exited with code " + std::to_string(WEXITSTATUS(status));
+        }
+        {
+            std::lock_guard<std::mutex> guard(gamesMutex);
+            if (commandGame >= 0 && commandGame < static_cast<int>(games.size())) {
+                games[commandGame].lastRun = Timestamp();
+                games[commandGame].lastError = outcome;
+            }
+        }
+        Save();
+        if (!outcome.empty()) {
+            Fail(outcome);
+        } else {
+            AppendLog("game exited normally");
+        }
+        runningGame = -1;
         busy = false;
     }).detach();
 }
 
+bool App::IsRunning(int index) const {
+    return runningGame.load() == index;
+}
+
+void ApplyAuditLines(const std::vector<std::string>& lines, Game& game) {
+    auto numberAfter = [](const std::string& row, const std::string& word) {
+        const auto at = row.find(word);
+        if (at == std::string::npos) return -1;
+        std::size_t pos = at + word.size();
+        while (pos < row.size() && !std::isdigit(static_cast<unsigned char>(row[pos]))) pos++;
+        if (pos >= row.size()) return -1;
+        std::size_t end = pos;
+        while (end < row.size() && std::isdigit(static_cast<unsigned char>(row[end]))) end++;
+        return std::atoi(row.substr(pos, end - pos).c_str());
+    };
+    auto numberBefore = [](const std::string& row, const std::string& word) {
+        const auto at = row.find(word);
+        if (at == std::string::npos || at == 0) return -1;
+        std::size_t pos = at;
+        while (pos > 0 && !std::isdigit(static_cast<unsigned char>(row[pos - 1]))) pos--;
+        if (pos == 0) return -1;
+        std::size_t start = pos;
+        while (start > 0 && std::isdigit(static_cast<unsigned char>(row[start - 1]))) start--;
+        return std::atoi(row.substr(start, pos - start).c_str());
+    };
+    int absent = -1;
+    int stub = -1;
+    int total = -1;
+    int missing = -1;
+    for (const auto& row : lines) {
+        if (row.find("unique imports") != std::string::npos) {
+            total = numberBefore(row, "unique imports");
+        } else if (row.find("  absent") != std::string::npos && row.find("imports") != std::string::npos) {
+            absent = numberAfter(row, "absent");
+        } else if (row.find("  stub") != std::string::npos && row.find("imports") != std::string::npos) {
+            stub = numberAfter(row, "stub");
+        }
+        if (row.find("Needed libraries") != std::string::npos) missing = numberAfter(row, "modules");
+    }
+    if (total < 0 && absent < 0 && missing < 0) return;
+    if (total >= 0 && absent >= 0 && missing < 0) missing = 0;
+    game.auditTotal = total;
+    game.auditAbsent = absent;
+    game.auditStub = stub;
+    game.auditMissing = missing;
+    std::string summary;
+    if (total >= 0) summary = std::to_string(total) + " unique imports";
+    if (absent > 0) summary += ", " + std::to_string(absent) + " missing implementations";
+    if (stub > 0) summary += ", " + std::to_string(stub) + " stubs";
+    if (missing > 0) summary += ", " + std::to_string(missing) + " libraries not found";
+    if (summary.empty()) summary = "audited";
+    game.auditSummary = summary;
+    if (absent == 0 && missing == 0 && total >= 0 && stub <= 0) game.status = "ready";
+}
+
 void App::UpdateGameStatus(const std::string& label, const std::vector<std::string>& lines) {
     if (commandGame < 0 || commandGame >= static_cast<int>(games.size())) return;
-    std::string status;
     if (label == "audit") {
-        for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
-            if (it->find("implemented") != std::string::npos && it->find("stub") != std::string::npos) {
-                status = *it;
-                break;
-            }
-        }
-    } else if (label == "convert") {
-        status = "converted";
-    }
-    if (status.empty()) return;
-    {
         std::lock_guard<std::mutex> guard(gamesMutex);
-        games[commandGame].status = status;
+        ApplyAuditLines(lines, games[commandGame]);
+    } else if (label == "convert") {
+        std::lock_guard<std::mutex> guard(gamesMutex);
+        games[commandGame].status = "converted";
+    } else {
+        return;
     }
     Save();
 }

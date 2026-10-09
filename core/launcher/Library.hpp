@@ -17,12 +17,18 @@ struct Game {
     bool intel = false;
     std::string filter = "0";
     std::string status;
+    int auditAbsent = -1;
+    int auditStub = -1;
+    int auditTotal = -1;
+    int auditMissing = -1;
+    std::string auditSummary;
     std::string created;
     std::string lastRun;
     std::string title;
     std::string titleId;
     std::string version;
     std::string icon;
+    std::string lastError;
     std::map<std::string, std::string> env;
 };
 
@@ -41,6 +47,8 @@ void SaveConfig(const std::map<std::string, std::string>& config);
 
 std::vector<Game> LoadLibrary();
 void SaveLibrary(const std::vector<Game>& games);
+std::vector<Game> LoadLibraryFrom(const std::filesystem::path& path);
+void SaveLibraryAt(const std::filesystem::path& path, const std::vector<Game>& games);
 
 std::string Timestamp();
 std::string LogStamp();

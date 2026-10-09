@@ -1,3 +1,5 @@
+#undef NDEBUG
+
 #include "App.hpp"
 #include "Library.hpp"
 #include "Json.hpp"
@@ -142,6 +144,114 @@ void CheckFailure() {
     std::cout << "failure popup ok\n";
 }
 
+void CheckAuditParse() {
+    Launcher::Game game;
+    game.status = "converted";
+    const std::vector<std::string> lines = {
+        "1753 references, 604 unique imports",
+        "  implemented    443 imports     443 references",
+        "  stub            18 imports      18 references",
+        "  absent           4 imports       4 references",
+        "  module         139 imports    1288 references",
+        "",
+        "Absent: no built library exports these, so the loader fails (4)",
+        "  [Il2CppUserAssemblies.prx]",
+        "    -pnj3-7a6QA",
+        "",
+        "Needed libraries with no file in --libs or --modules (1)",
+        "  Il2CppUserAssemblies.prx: 5 imports",
+    };
+    Launcher::ApplyAuditLines(lines, game);
+    assert(game.auditTotal == 604);
+    assert(game.auditAbsent == 4);
+    assert(game.auditStub == 18);
+    assert(game.auditMissing == 1);
+    assert(game.auditSummary.find("4 missing implementations") != std::string::npos);
+    assert(game.auditSummary.find("1 libraries not found") != std::string::npos);
+    Launcher::Game ready;
+    ready.status = "converted";
+    const std::vector<std::string> clean = {
+        "1753 references, 604 unique imports",
+        "  implemented    604 imports     604 references",
+        "  stub             0 imports       0 references",
+        "  absent           0 imports       0 references",
+        "  module         139 imports    1288 references",
+    };
+    Launcher::ApplyAuditLines(clean, ready);
+    assert(ready.auditAbsent == 0);
+    assert(ready.auditMissing == 0);
+    assert(ready.auditStub == 0);
+    assert(ready.status == "ready");
+    std::cout << "audit parse ok\n";
+}
+
+void CheckAuditRoundtrip() {
+    const auto path = std::filesystem::temp_directory_path() / "anyps5-audit-fixture.json";
+    Launcher::Game game;
+    game.title = "Fixture";
+    game.auditAbsent = 4;
+    game.auditStub = 18;
+    game.auditTotal = 604;
+    game.auditMissing = 1;
+    game.auditSummary = "604 unique imports, 4 missing implementations";
+    game.lastError = "the game exited with code 1";
+    Launcher::SaveLibraryAt(path, {game});
+    const auto games = Launcher::LoadLibraryFrom(path);
+    assert(games.size() == 1);
+    assert(games[0].auditAbsent == 4);
+    assert(games[0].auditMissing == 1);
+    assert(games[0].auditStub == 18);
+    assert(games[0].auditTotal == 604);
+    assert(games[0].auditSummary == game.auditSummary);
+    assert(games[0].lastError == game.lastError);
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    std::cout << "audit roundtrip ok\n";
+}
+
+void CheckLaunchGuards() {
+    Launcher::App app;
+    Launcher::Game blocked;
+    blocked.title = "Blocked";
+    blocked.auditAbsent = 4;
+    app.games.push_back(blocked);
+    assert(!app.Launch(0));
+    assert(app.lastFailed);
+    assert(app.lastFailure.find("cannot start") != std::string::npos);
+    app.lastFailed = false;
+    Launcher::Game clean;
+    clean.title = "NoFile";
+    app.games.push_back(clean);
+    assert(!app.Launch(1));
+    assert(app.lastFailed);
+    assert(app.lastFailure.find("convert first") != std::string::npos);
+    app.lastFailed = false;
+    app.runningGame = 0;
+    assert(!app.Launch(1));
+    assert(app.lastFailed);
+    assert(app.lastFailure.find("already running") != std::string::npos);
+    app.lastFailed = false;
+    assert(!app.Convert(1));
+    assert(app.lastFailed);
+    assert(app.lastFailure.find("is running") != std::string::npos);
+    app.lastFailed = false;
+    assert(!app.Audit(1));
+    assert(app.lastFailed);
+    app.runningGame = -1;
+    app.lastFailed = false;
+    app.busy = true;
+    assert(!app.Launch(1));
+    assert(app.lastFailed);
+    assert(app.lastFailure.find("another task") != std::string::npos);
+    app.busy = false;
+    app.lastFailed = false;
+    assert(app.IsRunning(0) == false);
+    app.runningGame = 3;
+    assert(app.IsRunning(3));
+    assert(!app.IsRunning(1));
+    std::cout << "launch guards ok\n";
+}
+
 }
 
 int main() {
@@ -152,5 +262,8 @@ int main() {
     CheckToggles();
     CheckIconButton();
     CheckFailure();
+    CheckAuditParse();
+    CheckAuditRoundtrip();
+    CheckLaunchGuards();
     std::cout << "launcher tests ok\n";
 }

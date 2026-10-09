@@ -95,12 +95,26 @@ Json::Value gameToJson(const Game& game) {
     putBool("intel", game.intel);
     put("filter", game.filter);
     put("status", game.status);
+    auto putInt = [&](const std::string& key, int number) {
+        Json::Value item;
+        item.type = Json::Type::Number;
+        item.number = static_cast<double>(number);
+        item.integer = static_cast<double>(number);
+        item.isInteger = true;
+        value.object[key] = item;
+    };
+    putInt("audit_absent", game.auditAbsent);
+    putInt("audit_stub", game.auditStub);
+    putInt("audit_total", game.auditTotal);
+    putInt("audit_missing", game.auditMissing);
+    put("audit_summary", game.auditSummary);
     put("created", game.created);
     put("last_run", game.lastRun);
     put("title", game.title);
     put("title_id", game.titleId);
     put("version", game.version);
     put("icon", game.icon);
+    put("last_error", game.lastError);
     Json::Value env;
     env.type = Json::Type::Object;
     for (const auto& [key, item] : game.env) {
@@ -130,12 +144,28 @@ Game gameFromJson(const Json::Value& value) {
     game.filter = get("filter");
     if (game.filter.empty()) game.filter = "0";
     game.status = get("status");
+    auto getInt = [&](const std::string& key) {
+        const Json::Value* item = value.find(key);
+        if (item == nullptr) return -1;
+        if (item->type == Json::Type::Number) return static_cast<int>(item->number);
+        try {
+            return std::stoi(item->asString());
+        } catch (const std::exception&) {
+            return -1;
+        }
+    };
+    game.auditAbsent = getInt("audit_absent");
+    game.auditStub = getInt("audit_stub");
+    game.auditTotal = getInt("audit_total");
+    game.auditMissing = getInt("audit_missing");
+    game.auditSummary = get("audit_summary");
     game.created = get("created");
     game.lastRun = get("last_run");
     game.title = get("title");
     game.titleId = get("title_id");
     game.version = get("version");
     game.icon = get("icon");
+    game.lastError = get("last_error");
     if (const Json::Value* env = value.find("env"); env != nullptr && env->type == Json::Type::Object) {
         for (const auto& [key, item] : env->object) game.env[key] = item.asString();
     }
@@ -193,9 +223,13 @@ std::filesystem::path DefaultRoot() {
 }
 
 std::vector<Game> LoadLibrary() {
+    return LoadLibraryFrom(LibraryPath());
+}
+
+std::vector<Game> LoadLibraryFrom(const std::filesystem::path& path) {
     std::vector<Game> games;
     try {
-        const auto value = Json::Parse(readFile(LibraryPath()));
+        const auto value = Json::Parse(readFile(path));
         if (const Json::Value* list = value.find("games"); list != nullptr && list->type == Json::Type::Array) {
             for (const auto& item : list->array) games.push_back(gameFromJson(item));
         }
@@ -206,13 +240,17 @@ std::vector<Game> LoadLibrary() {
 }
 
 void SaveLibrary(const std::vector<Game>& games) {
+    SaveLibraryAt(LibraryPath(), games);
+}
+
+void SaveLibraryAt(const std::filesystem::path& path, const std::vector<Game>& games) {
     Json::Value list;
     list.type = Json::Type::Array;
     for (const auto& game : games) list.array.push_back(gameToJson(game));
     Json::Value root;
     root.type = Json::Type::Object;
     root.object["games"] = list;
-    writeFile(LibraryPath(), Json::Dump(root) + "\n");
+    writeFile(path, Json::Dump(root) + "\n");
 }
 
 std::string Timestamp() {

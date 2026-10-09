@@ -53,6 +53,7 @@ struct App {
     std::string lastLog;
     std::string settingsError;
     std::string inputError;
+    std::atomic<int> runningGame{-1};
     std::map<std::string, std::string> config;
     DialogBuffers dialog;
     void* renderer = nullptr;
@@ -77,6 +78,7 @@ struct App {
 
     void StartCommand(const std::string& label, const std::vector<std::string>& args,
                       const std::map<std::string, std::string>& env);
+    bool IsRunning(int index) const;
     void UpdateGameStatus(const std::string& label, const std::vector<std::string>& lines);
     void SpawnDetached(const std::string& label, const std::string& exe,
                        const std::map<std::string, std::string>& env);
@@ -86,6 +88,8 @@ struct App {
     void CheckForUpdates();
     std::vector<std::string> SnapshotLog();
 };
+
+void ApplyAuditLines(const std::vector<std::string>& lines, Game& game);
 
 }
 

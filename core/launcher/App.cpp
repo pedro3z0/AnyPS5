@@ -62,7 +62,9 @@ std::filesystem::path newestRegistry(const std::filesystem::path& out) {
     if (!std::filesystem::is_directory(out, error)) return newest;
     auto newestTime = std::filesystem::file_time_type::min();
     for (const auto& item : std::filesystem::directory_iterator(out)) {
-        if (!item.is_regular_file() || item.path().extension() != ".registry.json") continue;
+        if (!item.is_regular_file()) continue;
+        const std::string name = item.path().filename().string();
+        if (name.find(".registry.json") == std::string::npos) continue;
         const auto time = item.last_write_time(error);
         if (error) continue;
         if (time > newestTime) {

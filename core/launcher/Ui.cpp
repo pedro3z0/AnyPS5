@@ -1,5 +1,7 @@
 #include "Ui.hpp"
 
+#include "anyps5/Version.hpp"
+
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
@@ -45,7 +47,7 @@ std::string ShortPath(const std::string& path) {
     return path;
 }
 
-enum class Glyph { Play, Convert, Audit, Sliders, Keyboard, Folder, Trash, Plus, Page, Close };
+}
 
 void DrawGlyph(Glyph glyph, ImDrawList* draw, const ImVec2& origin, float size, ImU32 color) {
     const float x = origin.x;
@@ -133,6 +135,13 @@ void DrawGlyph(Glyph glyph, ImDrawList* draw, const ImVec2& origin, float size, 
         draw->AddLine(ImVec2(x + size * 0.76f, y + size * 0.24f), ImVec2(x + size * 0.24f, y + size * 0.76f), color, stroke * 1.2f);
         break;
     }
+    case Glyph::Refresh: {
+        draw->AddLine(ImVec2(x + c, y + size * 0.14f), ImVec2(x + c, y + size * 0.68f), color, stroke);
+        draw->AddLine(ImVec2(x + size * 0.30f, y + size * 0.52f), ImVec2(x + c, y + size * 0.70f), color, stroke);
+        draw->AddLine(ImVec2(x + size * 0.70f, y + size * 0.52f), ImVec2(x + c, y + size * 0.70f), color, stroke);
+        draw->AddLine(ImVec2(x + size * 0.22f, y + size * 0.86f), ImVec2(x + size * 0.78f, y + size * 0.86f), color, stroke);
+        break;
+    }
     }
 }
 
@@ -156,22 +165,6 @@ bool IconButton(const char* id, const char* label, Glyph glyph) {
         draw->AddText(ImVec2(origin.x + style.FramePadding.x + glyphSize + style.ItemInnerSpacing.x, origin.y + (size.y - textSize.y) * 0.5f), foreground, label);
     }
     return ImGui::IsItemClicked();
-}
-
-}
-
-
-std::vector<std::string> EnvFields() {
-    return {"ANYPS5_GPU", "ANYPS5_SYSTEM_FONTS", "ANYPS5_SHADER_CACHE_DIR", "ANYPS5_NO_SHADER_CACHE", "ANYPS5_NGS2_TRACE"};
-}
-
-std::string EnvHint(const std::string& key) {
-    if (key == "ANYPS5_GPU") return "Vulkan device name filter (case-insensitive)";
-    if (key == "ANYPS5_SYSTEM_FONTS") return "directory with SST-*.otf or Noto substitutes";
-    if (key == "ANYPS5_SHADER_CACHE_DIR") return "shader cache directory (default: shader_cache beside the game)";
-    if (key == "ANYPS5_NO_SHADER_CACHE") return "disable the disk shader cache when set";
-    if (key == "ANYPS5_NGS2_TRACE") return "dump NGS2 voice params to stderr";
-    return "";
 }
 
 bool TextInput(const char* label, std::string& value, const char* hint) {
@@ -316,6 +309,8 @@ void DrawToolbar(App& app) {
     const Game* selected = app.selected >= 0 && app.selected < static_cast<int>(app.games.size()) ? &app.games[app.selected] : nullptr;
     ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "AnyPS5");
     ImGui::SameLine();
+    ImGui::TextDisabled("%s", ANYPS5_VERSION);
+    ImGui::SameLine();
     ImGui::BeginDisabled(app.busy || selected == nullptr);
     if (IconButton("##convert", "Convert", Glyph::Convert) && selected != nullptr) {
         app.Convert(*selected);
@@ -364,6 +359,8 @@ void DrawToolbar(App& app) {
     ImGui::SameLine();
     if (IconButton("##logs", "Logs", Glyph::Page)) app.dialog.logOpen = !app.dialog.logOpen;
     ImGui::SameLine();
+    if (IconButton("##updates", "Updates", Glyph::Refresh)) app.CheckForUpdates();
+    ImGui::SameLine();
     if (IconButton("##quit", "", Glyph::Close)) app.exitRequested = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quit");
     if (app.busy) {
@@ -391,7 +388,7 @@ void DrawCard(App& app, int index, void* renderer) {
     }
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    if (!app.busy && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         app.selected = index;
         app.Launch(app.games[index]);
     }
@@ -475,8 +472,18 @@ void DrawDetails(App& app, float height) {
         if (!game.created.empty()) ImGui::TextDisabled("Added: %s", game.created.c_str());
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "Environment");
-        for (const auto& [key, value] : game.env) {
-            if (!value.empty()) ImGui::TextDisabled("%s = %s", key.c_str(), value.c_str());
+        std::map<std::string, std::string> effective = game.env;
+        const auto defaultCache = (std::filesystem::path(game.out) / "shader_cache").string();
+        const auto cached = effective.find("ANYPS5_SHADER_CACHE_DIR");
+        const bool cacheDefault = cached == effective.end() || cached->second.empty();
+        if (cacheDefault) effective["ANYPS5_SHADER_CACHE_DIR"] = defaultCache;
+        for (const auto& [key, value] : effective) {
+            if (value.empty()) continue;
+            if (key == "ANYPS5_SHADER_CACHE_DIR" && cacheDefault) {
+                ImGui::TextDisabled("%s = %s (default)", key.c_str(), value.c_str());
+            } else {
+                ImGui::TextDisabled("%s = %s", key.c_str(), value.c_str());
+            }
         }
     }
     ImGui::EndChild();
@@ -528,6 +535,72 @@ void DrawLog(App& app) {
 
 }
 
+namespace {
+
+void CenterModal() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+}
+
+}
+
+void DrawModals(App& app) {
+    if (app.busy) {
+        if (!app.dialog.workingOpen) {
+            app.dialog.workingOpen = true;
+            CenterModal();
+            ImGui::OpenPopup("Working");
+        }
+        if (ImGui::BeginPopupModal("Working", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+            ImGui::Text("%s", app.lastCommand.c_str());
+            ImGui::SameLine();
+            const int step = static_cast<int>(ImGui::GetFrameCount() / 20) % 4;
+            ImGui::TextDisabled("%s", step == 0 ? "   " : step == 1 ? ".  " : step == 2 ? ".. " : "...");
+            ImGui::TextDisabled("The log window shows live output; this closes when the task finishes.");
+            ImGui::EndPopup();
+        }
+    } else {
+        app.dialog.workingOpen = false;
+    }
+    if (app.lastFailed) {
+        if (!app.dialog.failureOpen) {
+            app.dialog.failureOpen = true;
+            CenterModal();
+            ImGui::OpenPopup("Action failed");
+        }
+        if (ImGui::BeginPopupModal("Action failed", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            std::string message;
+            std::string logPath;
+            {
+                std::lock_guard<std::mutex> lock(app.logMutex);
+                message = app.lastFailure;
+                logPath = app.lastLog;
+            }
+            ImGui::TextWrapped("%s", message.c_str());
+            if (!logPath.empty()) ImGui::TextDisabled("log: %s", logPath.c_str());
+            if (ImGui::Button("Copy")) {
+                ImGui::SetClipboardText((message + "\nlog: " + logPath).c_str());
+            }
+            ImGui::SameLine();
+            if (!logPath.empty()) {
+                if (ImGui::Button("Open log")) {
+                    const std::string command = "xdg-open '" + logPath + "' || open '" + logPath + "' || explorer '" + logPath + "'";
+                    std::system(command.c_str());
+                }
+                ImGui::SameLine();
+            }
+            if (ImGui::Button("Close")) {
+                app.lastFailed = false;
+                app.dialog.failureOpen = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    } else {
+        app.dialog.failureOpen = false;
+    }
+}
+
 void DrawUi(App& app, void* renderer, void* window) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -545,6 +618,7 @@ void DrawUi(App& app, void* renderer, void* window) {
     ImGui::End();
     DrawLog(app);
     DrawDialogs(app);
+    DrawModals(app);
 }
 
 }

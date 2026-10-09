@@ -7,6 +7,9 @@
 #include <fstream>
 #include <sstream>
 #include <system_error>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 namespace Launcher {
 
@@ -142,6 +145,38 @@ void App::AppendLog(const std::string& line) {
     if (logLines.size() > 500) logLines.erase(logLines.begin(), logLines.begin() + 250);
 }
 
+void App::Fail(const std::string& message) {
+    AppendLog("FAIL: " + message);
+    std::lock_guard<std::mutex> lock(logMutex);
+    lastFailure = message;
+    lastFailed = true;
+}
+
+void App::CheckForUpdates() {
+    if (busy) return;
+    busy = true;
+    lastCommand = "updates";
+    std::thread([this] {
+        const std::string script = (root / "tools" / "update.sh").string();
+        std::FILE* pipe = popen(("bash " + script + " --check 2>&1").c_str(), "r");
+        bool available = false;
+        if (pipe != nullptr) {
+            char buffer[512];
+            while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+                AppendLog(buffer);
+                if (std::string(buffer).rfind("ANYPS5_UPDATE_AVAILABLE", 0) == 0) available = true;
+            }
+            pclose(pipe);
+        }
+        if (available) {
+            std::lock_guard<std::mutex> guard(logMutex);
+            lastFailure = "a launcher update is available (see the update line above); run tools/update.sh to install it";
+            lastFailed = true;
+        }
+        busy = false;
+    }).detach();
+}
+
 std::vector<std::string> App::SnapshotLog() {
     std::lock_guard<std::mutex> lock(logMutex);
     return logLines;
@@ -169,7 +204,19 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
                 if (file) file << stamp() << " " << line << "\n";
             }
             if (file) file.flush();
-            pclose(pipe);
+            const int status = pclose(pipe);
+#ifdef _WIN32
+            const int code = status;
+#else
+            const int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif
+            if (code != 0) {
+                const std::string failure = "command exited with code " + std::to_string(code);
+                AppendLog("FAIL: " + failure);
+                std::lock_guard<std::mutex> guard(logMutex);
+                lastFailure = failure;
+                lastFailed = true;
+            }
         }
         busy = false;
     }).detach();
@@ -178,12 +225,12 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
 bool App::Convert(const Game& game) {
     const auto relinker = RelinkerPath();
     if (relinker.empty()) {
-        AppendLog("FAIL: relinker binary not found beside the launcher or under " + root.string());
+        Fail("relinker binary not found beside the launcher or under " + root.string());
         return false;
     }
     const std::string kind = ClassifyKind(std::filesystem::path(game.input));
     if (kind != "elf") {
-        AppendLog("FAIL: " + game.input + " is " + kind + "; the relinker needs a clean ELF (decrypt the eboot first)");
+        Fail(game.input + " is " + kind + "; the relinker needs a clean ELF (decrypt the eboot first)");
         return false;
     }
     const auto out = std::filesystem::path(game.out);
@@ -203,17 +250,17 @@ bool App::Convert(const Game& game) {
 bool App::Audit(const Game& game) {
     const auto registry = newestRegistry(std::filesystem::path(game.out));
     if (registry.empty()) {
-        AppendLog("FAIL: no .registry.json in " + game.out);
+        Fail("no .registry.json in " + game.out);
         return false;
     }
     const auto audit = root / "tools" / "import_audit.py";
     const auto libs = LibrariesPath();
     if (!std::filesystem::is_regular_file(audit)) {
-        AppendLog("audit needs the source tree (tools/import_audit.py); skipped");
+        Fail("audit needs the source tree (tools/import_audit.py); skipped");
         return false;
     }
     if (libs.empty()) {
-        AppendLog("FAIL: no built .prx directory; run cmake --build build --target libs first");
+        Fail("no built .prx directory; run cmake --build build --target libs first");
         return false;
     }
     std::vector<std::string> args = {"python3", audit.string(), registry.string(), "--libs", libs.string()};
@@ -229,7 +276,7 @@ bool App::Audit(const Game& game) {
 bool App::Launch(const Game& game) {
     const auto exe = ExecutablePath(game);
     if (!std::filesystem::is_regular_file(exe)) {
-        AppendLog("FAIL: " + exe.string() + " missing; convert first");
+        Fail(exe.string() + " missing; convert first");
         return false;
     }
     std::error_code error;

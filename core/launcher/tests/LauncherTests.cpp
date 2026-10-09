@@ -1,5 +1,9 @@
+#include "App.hpp"
 #include "Library.hpp"
 #include "Json.hpp"
+#include "Ui.hpp"
+
+#include "imgui.h"
 
 #include <cassert>
 #include <filesystem>
@@ -79,6 +83,65 @@ void CheckToggles() {
     std::cout << "toggles ok\n";
 }
 
+void CheckIconButton() {
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(800.0f, 600.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.Fonts->AddFontDefault();
+    io.Fonts->Build();
+    bool clicked = false;
+    ImVec2 center(0.0f, 0.0f);
+    for (int frame = 0; frame < 4; ++frame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(50.0f, 50.0f));
+        ImGui::SetNextWindowSize(ImVec2(400.0f, 300.0f));
+        ImGui::Begin("t");
+        clicked = clicked || Launcher::IconButton("##test", "Test", Launcher::Glyph::Play);
+        if (frame == 0) {
+            const ImVec2 lo = ImGui::GetItemRectMin();
+            const ImVec2 hi = ImGui::GetItemRectMax();
+            center = ImVec2((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f);
+        }
+        ImGui::End();
+        ImGui::Render();
+        if (frame > 0) io.AddMousePosEvent(center.x, center.y);
+        if (frame == 1) io.AddMouseButtonEvent(0, true);
+        if (frame == 2) io.AddMouseButtonEvent(0, false);
+    }
+    ImGui::DestroyContext();
+    assert(clicked);
+    std::cout << "icon button ok\n";
+}
+
+void CheckFailure() {
+    Launcher::App app;
+    app.Fail("probe failure");
+    assert(app.lastFailed);
+    assert(app.lastFailure == "probe failure");
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(800.0f, 600.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.Fonts->AddFontDefault();
+    io.Fonts->Build();
+    app.busy = true;
+    app.lastCommand = "probe command";
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        Launcher::DrawModals(app);
+        ImGui::Render();
+    }
+    app.busy = false;
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        Launcher::DrawModals(app);
+        ImGui::Render();
+    }
+    ImGui::DestroyContext();
+    std::cout << "failure popup ok\n";
+}
+
 }
 
 int main() {
@@ -87,5 +150,7 @@ int main() {
     CheckCandidates();
     CheckNestedDump();
     CheckToggles();
+    CheckIconButton();
+    CheckFailure();
     std::cout << "launcher tests ok\n";
 }

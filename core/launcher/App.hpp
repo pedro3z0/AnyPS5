@@ -32,6 +32,8 @@ struct DialogBuffers {
     std::string envText;
     std::map<std::string, std::string> envSnapshot;
     int envGame = -1;
+    bool workingOpen = false;
+    bool failureOpen = false;
     bool logOpen = false;
 
 };
@@ -45,6 +47,8 @@ struct App {
     std::vector<std::string> logLines;
     std::atomic<bool> busy{false};
     std::atomic<bool> exitRequested{false};
+    std::atomic<bool> lastFailed{false};
+    std::string lastFailure;
     std::string lastCommand;
     std::string lastLog;
     std::string settingsError;
@@ -73,6 +77,8 @@ struct App {
                       const std::map<std::string, std::string>& env);
 
     void AppendLog(const std::string& line);
+    void Fail(const std::string& message);
+    void CheckForUpdates();
     std::vector<std::string> SnapshotLog();
 };
 

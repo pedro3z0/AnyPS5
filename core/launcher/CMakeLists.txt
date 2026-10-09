@@ -10,6 +10,7 @@ add_executable(launcher
         ${CMAKE_CURRENT_SOURCE_DIR}/App.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Library.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Json.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Diagnostics.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/stb_impl.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/imgui.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/imgui_draw.cpp
@@ -38,6 +39,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/App.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Ui.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Dialogs.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Diagnostics.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/stb_impl.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/imgui.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/imgui_draw.cpp

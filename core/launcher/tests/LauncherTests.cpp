@@ -4,6 +4,7 @@
 #include "Library.hpp"
 #include "Json.hpp"
 #include "Ui.hpp"
+#include "Diagnostics.hpp"
 
 #include "imgui.h"
 
@@ -144,6 +145,39 @@ void CheckFailure() {
     std::cout << "failure popup ok\n";
 }
 
+void CheckDiagnostics() {
+    const std::vector<std::string> systemLines = Launcher::Diagnostics::SystemLines();
+    assert(systemLines.size() == 5);
+    assert(systemLines[0].rfind("anyps5: " + Launcher::Diagnostics::VersionStamp(), 0) == 0);
+    assert(systemLines[1].rfind("os: ", 0) == 0);
+    assert(systemLines[2].rfind("cpu: ", 0) == 0);
+    assert(systemLines[3].rfind("gpu: ", 0) == 0);
+    assert(systemLines[4].rfind("gpu driver: ", 0) == 0);
+    const std::string report = Launcher::Diagnostics::BuildFailureReport(
+        "Probe Game", "PPSA00001", "the game exited with code 127", "/tmp/probe.log",
+        systemLines, "line one\nline two\n");
+    for (const auto& line : systemLines) assert(report.find(line) != std::string::npos);
+    assert(report.find("game: Probe Game [PPSA00001]") != std::string::npos);
+    assert(report.find("error: the game exited with code 127") != std::string::npos);
+    assert(report.find("log: /tmp/probe.log") != std::string::npos);
+    assert(report.find("line one") != std::string::npos);
+    assert(report.find("line two") != std::string::npos);
+    const std::string bare = Launcher::Diagnostics::BuildFailureReport(
+        std::string(), std::string(), "update check failed", std::string(), systemLines, std::string());
+    assert(bare.find("game:") == std::string::npos);
+    assert(bare.find("error: update check failed") != std::string::npos);
+    const std::filesystem::path temp = std::filesystem::temp_directory_path() / "anyps5-diagnostics-log.txt";
+    {
+        std::ofstream stream(temp);
+        stream << "alpha\nbeta\ngamma\n";
+    }
+    assert(Launcher::Diagnostics::ReadLogTail(temp.string(), 6) == std::string("gamma\n"));
+    assert(Launcher::Diagnostics::ReadLogTail(temp.string(), 1024) == std::string("alpha\nbeta\ngamma\n"));
+    assert(Launcher::Diagnostics::ReadLogTail(std::string(), 1024).empty());
+    std::filesystem::remove(temp);
+    std::cout << "diagnostics report ok\n";
+}
+
 void CheckAuditParse() {
     Launcher::Game game;
     game.status = "converted";
@@ -262,6 +296,7 @@ int main() {
     CheckToggles();
     CheckIconButton();
     CheckFailure();
+    CheckDiagnostics();
     CheckAuditParse();
     CheckAuditRoundtrip();
     CheckLaunchGuards();

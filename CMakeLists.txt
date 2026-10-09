@@ -11,6 +11,19 @@ endfunction()
 option(BUILD_TESTING "Build and register relinker tests" OFF)
 option(ANYPS5_RELINKER_ONLY "Build the relinker without system libraries or third-party dependencies" OFF)
 set(ANYPS5_VERSION "0.1.0" CACHE STRING "AnyPS5 release version")
+set(ANYPS5_COMMIT "unknown" CACHE STRING "AnyPS5 build commit id")
+if(ANYPS5_COMMIT STREQUAL "unknown")
+    execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE ANYPS5_COMMIT_DETECTED
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE ANYPS5_COMMIT_RESULT)
+    if(ANYPS5_COMMIT_RESULT EQUAL 0 AND NOT ANYPS5_COMMIT_DETECTED STREQUAL "")
+        set(ANYPS5_COMMIT "${ANYPS5_COMMIT_DETECTED}" CACHE STRING "AnyPS5 build commit id" FORCE)
+    endif()
+endif()
 if(BUILD_TESTING)
     enable_testing()
     if(MINGW)

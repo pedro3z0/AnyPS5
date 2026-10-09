@@ -1,6 +1,7 @@
 #include "Ui.hpp"
 
 #include "anyps5/Version.hpp"
+#include "Diagnostics.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -330,7 +331,7 @@ void DrawToolbar(App& app) {
     const Game* selected = app.selected >= 0 && app.selected < static_cast<int>(app.games.size()) ? &app.games[app.selected] : nullptr;
     ImGui::TextColored(ImVec4(0.039f, 0.518f, 1.0f, 1.0f), "AnyPS5");
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", ANYPS5_VERSION);
+    ImGui::TextDisabled("%s", Diagnostics::VersionStamp().c_str());
     ImGui::SameLine();
     const bool locked = app.busy || app.runningGame >= 0;
     ImGui::BeginDisabled(locked || selected == nullptr);
@@ -633,15 +634,22 @@ void DrawModals(App& app) {
         if (ImGui::BeginPopupModal("Action failed", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             std::string message;
             std::string logPath;
+            std::string failureGame;
+            std::string failureTitleId;
             {
                 std::lock_guard<std::mutex> lock(app.logMutex);
                 message = app.lastFailure;
                 logPath = app.lastLog;
+                failureGame = app.failureGame;
+                failureTitleId = app.failureTitleId;
             }
             ImGui::TextWrapped("%s", message.c_str());
             if (!logPath.empty()) ImGui::TextDisabled("log: %s", logPath.c_str());
             if (ImGui::Button("Copy")) {
-                ImGui::SetClipboardText((message + "\nlog: " + logPath).c_str());
+                const std::string report = Diagnostics::BuildFailureReport(
+                    failureGame, failureTitleId, message, logPath,
+                    Diagnostics::SystemLines(), Diagnostics::ReadLogTail(logPath, 64 * 1024));
+                ImGui::SetClipboardText(report.c_str());
             }
             ImGui::SameLine();
             if (!logPath.empty()) {

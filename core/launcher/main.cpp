@@ -2,6 +2,7 @@
 
 #include "App.hpp"
 #include "Ui.hpp"
+#include "Diagnostics.hpp"
 #include "anyps5/Version.hpp"
 
 #include "imgui.h"
@@ -62,7 +63,7 @@ int Launch(int argc, char** argv) {
     app.executableDir = SelfPath(argc > 0 ? argv[0] : nullptr).parent_path();
     app.root = FindRoot(app.executableDir / "anyps5-launcher");
     if (argc > 1 && std::string(argv[1]) == "--version") {
-        std::cout << ANYPS5_VERSION << "\n";
+        std::cout << Diagnostics::VersionStamp() << "\n";
         return 0;
     }
     app.Load();

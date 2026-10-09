@@ -49,6 +49,8 @@ struct App {
     std::atomic<bool> exitRequested{false};
     std::atomic<bool> lastFailed{false};
     std::string lastFailure;
+    std::string failureGame;
+    std::string failureTitleId;
     std::string lastCommand;
     std::string lastLog;
     std::string settingsError;

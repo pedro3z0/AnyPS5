@@ -180,9 +180,20 @@ void App::AppendLog(const std::string& line) {
 
 void App::Fail(const std::string& message) {
     AppendLog("FAIL: " + message);
-    std::lock_guard<std::mutex> lock(logMutex);
-    lastFailure = message;
-    lastFailed = true;
+    std::lock_guard<std::mutex> lock(gamesMutex);
+    const int index = commandGame >= 0 && commandGame < static_cast<int>(games.size()) ? commandGame : selected;
+    if (index >= 0 && index < static_cast<int>(games.size())) {
+        failureGame = games[index].title;
+        failureTitleId = games[index].titleId;
+    } else {
+        failureGame.clear();
+        failureTitleId.clear();
+    }
+    {
+        std::lock_guard<std::mutex> logLock(logMutex);
+        lastFailure = message;
+        lastFailed = true;
+    }
 }
 
 void App::CheckForUpdates() {
@@ -263,7 +274,17 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
                     : "command exited with code " + std::to_string(code);
                 AppendLog("FAIL: " + failure);
                 {
-                    std::lock_guard<std::mutex> guard(logMutex);
+                    std::lock_guard<std::mutex> gameLock(gamesMutex);
+                    if (commandGame >= 0 && commandGame < static_cast<int>(games.size())) {
+                        failureGame = games[commandGame].title;
+                        failureTitleId = games[commandGame].titleId;
+                    } else {
+                        failureGame.clear();
+                        failureTitleId.clear();
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> logLock(logMutex);
                     lastFailure = failure;
                     lastFailed = true;
                 }

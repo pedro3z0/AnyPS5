@@ -9,6 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <set>
+#include <string_view>
 
 namespace Relinker {
 
@@ -74,15 +75,25 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     }
     if (!missingNeeded.empty()) {
         std::map<std::string, std::filesystem::path> found;
+        std::map<std::string, std::filesystem::path> decryptedFound;
         for (auto it = std::filesystem::recursive_directory_iterator(root); it != std::filesystem::recursive_directory_iterator(); ++it) {
             if (it->is_directory() && std::find(directories.begin(), directories.end(), it->path()) != directories.end()) {
                 it.disable_recursion_pending();
                 continue;
             }
+            if (!it->is_regular_file() || !isElf(it->path())) continue;
             const auto name = it->path().filename().string();
-            if (!it->is_regular_file() || !missingNeeded.contains(name) || !isElf(it->path())) continue;
-            if (!found.emplace(name, it->path()).second) throw Domain::RelinkerException("Ambiguous needed module: " + found.at(name).string() + " and " + it->path().string());
+            if (missingNeeded.contains(name)) {
+                if (!found.emplace(name, it->path()).second) throw Domain::RelinkerException("Ambiguous needed module: " + found.at(name).string() + " and " + it->path().string());
+                continue;
+            }
+            constexpr std::string_view decryptedSuffix = ".esbak";
+            if (name.size() <= decryptedSuffix.size() || !name.ends_with(decryptedSuffix)) continue;
+            const auto needed = name.substr(0, name.size() - decryptedSuffix.size());
+            if (!missingNeeded.contains(needed)) continue;
+            if (!decryptedFound.emplace(needed, it->path()).second) throw Domain::RelinkerException("Ambiguous needed module: " + decryptedFound.at(needed).string() + " and " + it->path().string());
         }
+        for (const auto& [name, path] : decryptedFound) if (!found.contains(name)) found.emplace(name, path);
         for (const auto& [name, path] : found) paths.push_back(path);
     }
     if (!unmatchedExclusions.empty()) throw Domain::RelinkerException("Excluded guest module file not found: " + *unmatchedExclusions.begin());
@@ -133,12 +144,16 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         return name;
     };
     for (std::size_t index = 0; index < images.size(); ++index) {
-        for (const auto& name : {images[index].SourcePath.filename().string(), images[index].Soname}) {
+        const auto filename = images[index].SourcePath.filename().string();
+        std::vector<std::string> names = {filename, images[index].Soname};
+        constexpr std::string_view decryptedSuffix = ".esbak";
+        if (filename.size() > decryptedSuffix.size() && filename.ends_with(decryptedSuffix)) names.push_back(filename.substr(0, filename.size() - decryptedSuffix.size()));
+        for (const auto& name : names) {
             if (name.empty()) continue;
             const auto [found, inserted] = guestNames.emplace(name, index);
             if (!inserted && found->second != index) throw Domain::RelinkerException("Ambiguous guest dependency name: " + name);
         }
-        if (windows) windowsGuestFiles.emplace(foldFilename(images[index].SourcePath.filename().string()), index);
+        if (windows) windowsGuestFiles.emplace(foldFilename(filename), index);
     }
     const auto findGuest = [&](const std::string& name) {
         const auto exact = guestNames.find(name);

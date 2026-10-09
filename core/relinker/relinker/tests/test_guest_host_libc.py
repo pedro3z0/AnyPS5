@@ -27,12 +27,16 @@ def importing(*libraries):
     return image
 
 
-def convert(relinker, case, libraries, modules, options=()):
+def convert(relinker, case, libraries, modules, options=(), extra=()):
     (case / "sce_module").mkdir(parents=True)
     source = case / "input.elf"
     source.write_bytes(importing(*libraries))
     for name in modules:
         (case / "sce_module" / name).write_bytes(guest_fixture(PLAIN_SITE))
+    for relative, payload in extra:
+        target = case / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
     output = case / "output.elf"
     result = subprocess.run([str(relinker), *options, str(source), str(output)],
                             capture_output=True, text=True, timeout=30)

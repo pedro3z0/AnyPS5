@@ -2,6 +2,7 @@
 
 #include "App.hpp"
 #include "Ui.hpp"
+#include "anyps5/Version.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -23,7 +24,6 @@ std::filesystem::path FindRoot(const std::filesystem::path& executable) {
     std::filesystem::path path = executable.parent_path();
     for (int i = 0; i < 6; i++) {
         if (std::filesystem::exists(path / "tools" / "convert.sh")) return path;
-        if (std::filesystem::exists(path / ".." / "lib" / "anyps5")) return path;
         path = path.parent_path();
     }
     return executable.parent_path();
@@ -49,6 +49,10 @@ int Launch(int argc, char** argv) {
     App app;
     app.executableDir = std::filesystem::absolute(argc > 0 ? argv[0] : "launcher").parent_path();
     app.root = FindRoot(app.executableDir / "launcher");
+    if (argc > 1 && std::string(argv[1]) == "--version") {
+        std::cout << ANYPS5_VERSION << "\n";
+        return 0;
+    }
     app.Load();
     if (argc > 1 && std::string(argv[1]) == "--check") return Check(app.root);
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {

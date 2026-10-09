@@ -58,13 +58,15 @@ jobs:
         with:
           key: ${{ matrix.platform }}
           save: false
+      - name: Derive release version
+        run: echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
       - name: Configure Linux
         if: matrix.platform == 'linux'
-        run: cmake -S . -B build $CONFIGURE
+        run: cmake -S . -B build $CONFIGURE -DANYPS5_VERSION="$RELEASE_VERSION"
       - name: Configure Windows
         if: matrix.platform == 'windows'
         shell: cmd
-        run: cmake -S . -B build %CONFIGURE%
+        run: cmake -S . -B build %CONFIGURE% -DANYPS5_VERSION=%RELEASE_VERSION%
       - name: Build project and tests (Linux)
         if: matrix.platform == 'linux'
         run: cmake --build build
@@ -87,7 +89,10 @@ jobs:
         shell: cmd
         run: cmake --build build --target libs
       - name: Package release files
-        run: python tools/package_release.py --platform "${{ matrix.platform }}" --build build --output dist --version "$RELEASE_TAG"
+        run: |
+          python tools/package_release.py --platform "${{ matrix.platform }}" --build build --output dist --version "$RELEASE_TAG"
+          cpack --config build/CPackConfig.cmake -B dist
+          ls -lh dist
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
@@ -118,8 +123,10 @@ jobs:
           for file in "prx-windows-$RELEASE_TAG.zip" "prx-windows-$RELEASE_TAG.tar.gz" "prx-linux-$RELEASE_TAG.zip" "prx-linux-$RELEASE_TAG.tar.gz" "relinker-$RELEASE_TAG.exe" "relinker-$RELEASE_TAG"; do
             test -s "dist/$file"
           done
+          compgen -G "dist/anyps5-*" > /dev/null
           python tools/package_release.py --docs docs/user --output dist
           chmod +x "dist/relinker-$RELEASE_TAG"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Create draft and upload files
         run: gh release create "$RELEASE_TAG" dist/* --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
       - name: Publish complete release

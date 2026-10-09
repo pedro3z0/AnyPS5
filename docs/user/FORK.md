@@ -67,7 +67,15 @@ cmake --build build --target launcher
 ./build/core/launcher/launcher
 ```
 
-`./build/core/launcher/launcher --check` runs headless (library and script sanity) for CI; `ctest -R ^launcher` runs its JSON, input-text, and dump-candidate tests.
+`./build/core/launcher/launcher --check` runs headless (library and script sanity) for CI; `ctest -R ^launcher` runs its JSON, input-text, dump-candidate, icon-button click, and failure-popup tests.
+
+## Installer and updater
+
+`tools/install.sh` installs the launcher on Linux like any tool: `curl -fsSL .../install.sh | bash` or run it from a checkout; it downloads the latest GitHub release tarball (SHA-256 verified), unpacks to `~/.local/lib/anyps5`, and symlinks `launcher` and `relinker` into `~/.local/bin` so both are runnable from any terminal (`--system` targets `/usr/local`, `--source <dir>` installs a local build reporting its `git describe` version). `tools/install.ps1` installs on Windows to `%LOCALAPPDATA%\AnyPS5` with a Start Menu shortcut; the folder is self-contained, so no PATH changes are made there.
+
+`tools/update.sh` updates an installed tree in place (`--check` only reports: exit 0 up to date, 100 update available, 2 error; `--yes` skips the prompt); `tools/update.ps1` does the same on Windows by replacing the folder the executable lives in. Both verify `SHA256SUMS.txt`, stage and smoke-test the new package before touching the install, and are reachable from the launcher's Updates button, which runs `update.sh --check` and surfaces the result in the failure popup. `ANYPS5_API_URL` overrides the GitHub API endpoint for testing.
+
+Packages are built only from version-tagged releases: pushing a `v*` tag configures `-DANYPS5_VERSION=<tag>`, runs `cpack` in the release workflow, and publishes `anyps5-<version>-Linux.tar.gz`, `.deb`, and `win64.zip` alongside `SHA256SUMS.txt` on the GitHub release — the per-push build-artifacts workflow only builds and validates the install layout, it does not package. The staged layout is `bin/` (launcher, relinker), `tools/` (convert, audit, run, install, update, and the Python helpers), `lib/anyps5/libs/` (built `.prx` files), `core/libs/prx/` (source tree data the import audit uses to find throwing stubs), and `docs/`. `cmake --install build --prefix <dir>` stages the same layout without packaging; `ctest -R install_update` runs the fake-release end-to-end tests for both scripts.
 
 Your title converts to 411 references (`implemented 291`, `stub 41`, `module 76`, `absent 0`) and boots to presentation on this fork: rack `0x2001` audio, `sceNgs2PanInit`, `sceNgs2PanGetVolumeMatrix`, and an `app0/sce_sys/param.json` resource are implemented or staged as described in [technical debt](../dev/TechnicalDebt.md).
 

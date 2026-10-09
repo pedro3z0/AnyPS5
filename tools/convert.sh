@@ -7,6 +7,7 @@ INPUT=""
 WINDOWS=0
 TO_INTEL=0
 UNUSED_FILTER=0
+REGISTRY=0
 EXTRA_ARGS=()
 usage() {
   cat <<EOF
@@ -21,6 +22,7 @@ while [ $# -gt 0 ]; do
     --windows) WINDOWS=1; shift;;
     --to-intel) TO_INTEL=1; shift;;
     --unused-filter) UNUSED_FILTER="${2:?}"; shift 2;;
+    --registry) REGISTRY=1; shift;;
     --help|-h) usage; exit 0;;
     --) shift; EXTRA_ARGS+=("$@"); break;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2;;
@@ -66,6 +68,12 @@ RELINKER="$ROOT/build-relinker/core/relinker/relinker"
 if [ ! -x "$RELINKER" ]; then
   RELINKER="$ROOT/build/core/relinker/relinker"
 fi
+if [ ! -x "$RELINKER" ] && [ -f "$ROOT/bin/relinker" ]; then
+  RELINKER="$ROOT/bin/relinker"
+fi
+if [ ! -x "$RELINKER" ] && [ -f "$ROOT/bin/relinker.exe" ]; then
+  RELINKER="$ROOT/bin/relinker.exe"
+fi
 if [ ! -x "$RELINKER" ]; then
   echo "FAIL: relinker binary not found (configure build-relinker or build first)" >&2
   exit 2
@@ -76,6 +84,9 @@ if [ "$WINDOWS" -eq 1 ]; then
 fi
 if [ "$TO_INTEL" -eq 1 ]; then
   ARGS+=(--to-intel)
+fi
+if [ "$REGISTRY" -eq 1 ]; then
+  ARGS+=(--registry)
 fi
 ARGS+=("unused-filter=$UNUSED_FILTER" --registry)
 ARGS+=("${EXTRA_ARGS[@]}")

@@ -57,6 +57,8 @@ struct App {
     DialogBuffers dialog;
     void* renderer = nullptr;
     std::map<std::string, std::uintptr_t> icons;
+    int commandGame = -1;
+    mutable std::mutex gamesMutex;
 
     void Load();
     void Save() const;
@@ -69,12 +71,15 @@ struct App {
     std::string Config(const std::string& key, const std::string& fallback) const;
     void SetConfig(const std::string& key, const std::string& value);
 
-    bool Convert(const Game& game);
-    bool Audit(const Game& game);
-    bool Launch(const Game& game);
+    bool Convert(int index);
+    bool Audit(int index);
+    bool Launch(int index);
 
     void StartCommand(const std::string& label, const std::vector<std::string>& args,
                       const std::map<std::string, std::string>& env);
+    void UpdateGameStatus(const std::string& label, const std::vector<std::string>& lines);
+    void SpawnDetached(const std::string& label, const std::string& exe,
+                       const std::map<std::string, std::string>& env);
 
     void AppendLog(const std::string& line);
     void Fail(const std::string& message);

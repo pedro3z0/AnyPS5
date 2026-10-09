@@ -313,8 +313,7 @@ void DrawToolbar(App& app) {
     ImGui::SameLine();
     ImGui::BeginDisabled(app.busy || selected == nullptr);
     if (IconButton("##convert", "Convert", Glyph::Convert) && selected != nullptr) {
-        app.Convert(*selected);
-        app.Audit(*selected);
+        app.Convert(app.selected);
     }
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.039f, 0.518f, 1.0f, 1.0f));
@@ -322,9 +321,9 @@ void DrawToolbar(App& app) {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.024f, 0.384f, 0.776f, 1.0f));
     const bool play = IconButton("##play", "Play", Glyph::Play);
     ImGui::PopStyleColor(3);
-    if (play && selected != nullptr) app.Launch(*selected);
+    if (play && selected != nullptr) app.Launch(app.selected);
     ImGui::SameLine();
-    if (IconButton("##audit", "Audit", Glyph::Audit) && selected != nullptr) app.Audit(*selected);
+    if (IconButton("##audit", "Audit", Glyph::Audit) && selected != nullptr) app.Audit(app.selected);
     ImGui::SameLine();
     if (IconButton("##settings", "Settings", Glyph::Sliders)) app.dialog.showSettings = true;
     ImGui::SameLine();
@@ -390,7 +389,7 @@ void DrawCard(App& app, int index, void* renderer) {
     ImGui::PopStyleColor(3);
     if (!app.busy && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         app.selected = index;
-        app.Launch(app.games[index]);
+        app.Launch(index);
     }
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kIconSize + 12.0f);
     if (selected) {
@@ -545,7 +544,7 @@ void CenterModal() {
 }
 
 void DrawModals(App& app) {
-    if (app.busy) {
+    if (app.busy && app.lastCommand != "run") {
         if (!app.dialog.workingOpen) {
             app.dialog.workingOpen = true;
             CenterModal();

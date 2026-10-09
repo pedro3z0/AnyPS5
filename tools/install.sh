@@ -62,8 +62,8 @@ if [ -n "$SOURCE" ]; then
   if [ -d "$SOURCE/.git" ]; then
     SOURCE_VERSION="$(git -C "$SOURCE" describe --tags --exact-match 2>/dev/null || git -C "$SOURCE" rev-parse --short HEAD)"
   fi
-  if [ ! -x "$SOURCE/build/core/launcher/launcher" ]; then
-    echo "FAIL: build the source tree first (cmake --build $SOURCE/build --target launcher libs)" >&2
+  if [ ! -x "$SOURCE/build/core/launcher/anyps5-launcher" ] || [ ! -x "$SOURCE/build/core/relinker/relinker" ] || ! ls "$SOURCE/build/core/libs/libs/"*.prx >/dev/null 2>&1; then
+    echo "FAIL: build the source tree first (cmake --build $SOURCE/build --target launcher relinker libs)" >&2
     exit 2
   fi
   mkdir -p "$BIN"
@@ -71,7 +71,7 @@ if [ -n "$SOURCE" ]; then
   ln -sf "$ROOT/bin/anyps5-launcher" "$BIN/anyps5-launcher"
   ln -sf "$ROOT/bin/relinker" "$BIN/relinker"
   if [ -z "${SOURCE_VERSION:-}" ]; then
-    echo "installed $(version_of "$BIN/launcher") from $SOURCE to $ROOT"
+    echo "installed $(version_of "$BIN/anyps5-launcher") from $SOURCE to $ROOT"
   else
     echo "installed $SOURCE_VERSION from $SOURCE to $ROOT"
   fi

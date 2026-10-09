@@ -18,6 +18,7 @@ add_executable(launcher
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/backends/imgui_impl_sdl2.cpp
         ${CMAKE_SOURCE_DIR}/3rdparty/imgui/backends/imgui_impl_sdlrenderer2.cpp
 )
+set_target_properties(launcher PROPERTIES OUTPUT_NAME anyps5-launcher)
 
 target_include_directories(launcher PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

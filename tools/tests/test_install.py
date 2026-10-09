@@ -59,7 +59,7 @@ class InstallTest(unittest.TestCase):
         pkg = self.tmp / "pkg" / "anyps5-9.9.9-Linux"
         (pkg / "bin").mkdir(parents=True)
         (pkg / "tools").mkdir(parents=True)
-        write_stub(pkg / "bin" / "launcher", "9.9.9")
+        write_stub(pkg / "bin" / "anyps5-launcher", "9.9.9")
         write_stub(pkg / "bin" / "relinker", "9.9.9")
         (pkg / "tools" / "convert.sh").write_text("#!/usr/bin/env bash\nexit 0\n")
         archive = web / "anyps5-9.9.9-Linux.tar.gz"
@@ -93,7 +93,7 @@ class InstallTest(unittest.TestCase):
         root = self.tmp / "installed"
         (root / "bin").mkdir(parents=True)
         (root / "tools").mkdir(parents=True)
-        write_stub(root / "bin" / "launcher", STUB_VERSION)
+        write_stub(root / "bin" / "anyps5-launcher", STUB_VERSION)
         shutil.copy(TOOLS / "update.sh", root / "tools" / "update.sh")
         result = subprocess.run(["bash", str(root / "tools" / "update.sh"), "--check"], capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 100, result.stderr)
@@ -103,7 +103,7 @@ class InstallTest(unittest.TestCase):
         root = self.tmp / "current"
         (root / "bin").mkdir(parents=True)
         (root / "tools").mkdir(parents=True)
-        write_stub(root / "bin" / "launcher", "9.9.9")
+        write_stub(root / "bin" / "anyps5-launcher", "9.9.9")
         shutil.copy(TOOLS / "update.sh", root / "tools" / "update.sh")
         result = subprocess.run(["bash", str(root / "tools" / "update.sh"), "--check"], capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -114,19 +114,19 @@ class InstallTest(unittest.TestCase):
         prefix = self.tmp / "prefix"
         result = self.run_tool("install.sh", "--prefix", str(prefix))
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        version = subprocess.run([str(prefix / "bin" / "launcher"), "--version"], capture_output=True, text=True)
+        version = subprocess.run([str(prefix / "bin" / "anyps5-launcher"), "--version"], capture_output=True, text=True)
         self.assertEqual(version.stdout.strip(), "9.9.9")
 
     def test_update_replaces_tree(self):
         root = self.tmp / "installed"
         (root / "bin").mkdir(parents=True)
         (root / "tools").mkdir(parents=True)
-        write_stub(root / "bin" / "launcher", STUB_VERSION)
+        write_stub(root / "bin" / "anyps5-launcher", STUB_VERSION)
         write_stub(root / "bin" / "relinker", STUB_VERSION)
         shutil.copy(TOOLS / "update.sh", root / "tools" / "update.sh")
         result = subprocess.run(["bash", str(root / "tools" / "update.sh"), "--yes"], capture_output=True, text=True, env=self.env)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        version = subprocess.run([str(root / "bin" / "launcher"), "--version"], capture_output=True, text=True)
+        version = subprocess.run([str(root / "bin" / "anyps5-launcher"), "--version"], capture_output=True, text=True)
         self.assertEqual(version.stdout.strip(), "9.9.9")
 
     def test_corrupt_archive_rejected(self):

@@ -11,7 +11,7 @@ if ([string]::IsNullOrEmpty($Repo)) { $Repo = "pedro3z0/AnyPS5" }
 if ([string]::IsNullOrEmpty($Api)) { $Api = "https://api.github.com" }
 if ([string]::IsNullOrEmpty($Prefix)) { $Prefix = Join-Path $env:LOCALAPPDATA "AnyPS5" }
 $Bin = Join-Path $Prefix "bin"
-$Launcher = Join-Path $Bin "launcher.exe"
+$Launcher = Join-Path $Bin "anyps5-launcher.exe"
 
 if ($Uninstall) {
     Write-Host "removing $Prefix"

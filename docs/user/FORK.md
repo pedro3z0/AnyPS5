@@ -64,14 +64,14 @@ Per-game settings apply **without reconverting**, because the engine reads them 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build --target launcher
-./build/core/launcher/launcher
+./build/core/launcher/anyps5-launcher
 ```
 
-`./build/core/launcher/launcher --check` runs headless (library and script sanity) for CI; `ctest -R ^launcher` runs its JSON, input-text, dump-candidate, icon-button click, and failure-popup tests.
+`./build/core/launcher/anyps5-launcher --check` runs headless (library and script sanity) for CI; `ctest -R ^launcher` runs its JSON, input-text, dump-candidate, icon-button click, and failure-popup tests.
 
 ## Installer and updater
 
-`tools/install.sh` installs the launcher on Linux like any tool: `curl -fsSL .../install.sh | bash` or run it from a checkout; it downloads the latest GitHub release tarball (SHA-256 verified), unpacks to `~/.local/lib/anyps5`, and symlinks `launcher` and `relinker` into `~/.local/bin` so both are runnable from any terminal (`--system` targets `/usr/local`, `--source <dir>` installs a local build reporting its `git describe` version). `tools/install.ps1` installs on Windows to `%LOCALAPPDATA%\AnyPS5` with a Start Menu shortcut; the folder is self-contained, so no PATH changes are made there.
+`tools/install.sh` installs the launcher on Linux like any tool: `curl -fsSL .../install.sh | bash` or run it from a checkout; it downloads the latest GitHub release tarball (SHA-256 verified), unpacks to `~/.local/lib/anyps5`, and symlinks `anyps5-launcher` and `relinker` into `~/.local/bin` so both are runnable from any terminal (`--system` targets `/usr/local`, `--source <dir>` installs a local build reporting its `git describe` version). `tools/install.ps1` installs on Windows to `%LOCALAPPDATA%\AnyPS5` with a Start Menu shortcut; the folder is self-contained, so no PATH changes are made there.
 
 `tools/update.sh` updates an installed tree in place (`--check` only reports: exit 0 up to date, 100 update available, 2 error; `--yes` skips the prompt); `tools/update.ps1` does the same on Windows by replacing the folder the executable lives in. Both verify `SHA256SUMS.txt`, stage and smoke-test the new package before touching the install, and are reachable from the launcher's Updates button, which runs `update.sh --check` and surfaces the result in the failure popup. `ANYPS5_API_URL` overrides the GitHub API endpoint for testing.
 

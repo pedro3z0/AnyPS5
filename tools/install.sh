@@ -49,8 +49,8 @@ version_of() {
   "$1" --version 2>/dev/null || echo "unknown"
 }
 if [ "$MODE" = "uninstall" ]; then
-  echo "removing $ROOT and $BIN/launcher and $BIN/relinker"
-  rm -rf "$ROOT" "$BIN/launcher" "$BIN/relinker"
+  echo "removing $ROOT and $BIN/anyps5-launcher and $BIN/relinker"
+  rm -rf "$ROOT" "$BIN/anyps5-launcher" "$BIN/relinker"
   exit 0
 fi
 if [ -n "$SOURCE" ]; then
@@ -63,7 +63,7 @@ if [ -n "$SOURCE" ]; then
   fi
   mkdir -p "$BIN"
   cmake --install "$SOURCE/build" --prefix "$ROOT"
-  ln -sf "$ROOT/bin/launcher" "$BIN/launcher"
+  ln -sf "$ROOT/bin/anyps5-launcher" "$BIN/anyps5-launcher"
   ln -sf "$ROOT/bin/relinker" "$BIN/relinker"
   if [ -z "${SOURCE_VERSION:-}" ]; then
     echo "installed $(version_of "$BIN/launcher") from $SOURCE to $ROOT"
@@ -100,7 +100,7 @@ else
   }
   STAGE="$(mktemp -d)"
   tar -xzf "$ARCHIVE" -C "$STAGE" --strip-components=1
-  if [ ! -x "$STAGE/bin/launcher" ] || [ ! -x "$STAGE/bin/relinker" ]; then
+  if [ ! -x "$STAGE/bin/anyps5-launcher" ] || [ ! -x "$STAGE/bin/relinker" ]; then
     echo "FAIL: $URL is not a launcher package" >&2
     exit 2
   fi
@@ -112,9 +112,9 @@ else
   fi
   rmdir "$STAGE"
   mkdir -p "$BIN"
-  ln -sf "$ROOT/bin/launcher" "$BIN/launcher"
+  ln -sf "$ROOT/bin/anyps5-launcher" "$BIN/anyps5-launcher"
   ln -sf "$ROOT/bin/relinker" "$BIN/relinker"
-  echo "installed $(version_of "$BIN/launcher") ($TAG) to $ROOT"
+  echo "installed $(version_of "$BIN/anyps5-launcher") ($TAG) to $ROOT"
 fi
 case ":$PATH:" in
   *":$BIN:"*) ;;

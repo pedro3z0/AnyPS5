@@ -74,7 +74,7 @@ jobs:
       - name: Validate install layout
         run: |
           cmake --install build --prefix "$RUNNER_TEMP/anyps5-install"
-          test -x "$RUNNER_TEMP/anyps5-install/bin/launcher"
+          test -x "$RUNNER_TEMP/anyps5-install/bin/anyps5-launcher"
           test -x "$RUNNER_TEMP/anyps5-install/bin/relinker"
           test -f "$RUNNER_TEMP/anyps5-install/tools/convert.sh"
           test -f "$RUNNER_TEMP/anyps5-install/lib/anyps5/libs/libkernel.prx"

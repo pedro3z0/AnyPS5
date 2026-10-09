@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrEmpty($Repo)) { $Repo = "pedro3z0/AnyPS5" }
 if ([string]::IsNullOrEmpty($Api)) { $Api = "https://api.github.com" }
 $Root = Split-Path -Parent $PSScriptRoot
-$Launcher = Join-Path $Root "bin\launcher.exe"
+$Launcher = Join-Path $Root "bin\anyps5-launcher.exe"
 
 function CurrentVersion {
     try {
@@ -57,8 +57,8 @@ try {
     Expand-Archive -Path $archive -DestinationPath $stage
     $inner = Get-ChildItem -Directory $stage
     $stageRoot = if ($inner.Count -eq 1 -and (Test-Path (Join-Path $inner[0].FullName "bin"))) { $inner[0].FullName } else { $stage }
-    if (-not (Test-Path (Join-Path $stageRoot "bin\launcher.exe"))) { throw "FAIL: $($asset.browser_download_url) is not a launcher package" }
-    & (Join-Path $stageRoot "bin\launcher.exe") --version | Out-Null
+    if (-not (Test-Path (Join-Path $stageRoot "bin\anyps5-launcher.exe"))) { throw "FAIL: $($asset.browser_download_url) is not a launcher package" }
+    & (Join-Path $stageRoot "bin\anyps5-launcher.exe") --version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "FAIL: packaged launcher does not start" }
     foreach ($dir in @("bin", "tools", "lib", "core", "docs")) {
         $target = Join-Path $Root $dir

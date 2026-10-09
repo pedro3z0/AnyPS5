@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 current() {
-  "$ROOT/bin/launcher" --version 2>/dev/null || echo "unknown"
+  "$ROOT/bin/anyps5-launcher" --version 2>/dev/null || echo "unknown"
 }
 latest_tag() {
   if [ -n "$TAG" ]; then
@@ -93,11 +93,11 @@ verify_archive "$ARCHIVE" "$WORK/SHA256SUMS.txt" || {
 }
 STAGE="$(mktemp -d)"
 tar -xzf "$ARCHIVE" -C "$STAGE" --strip-components=1
-if [ ! -x "$STAGE/bin/launcher" ] || [ ! -x "$STAGE/bin/relinker" ]; then
+if [ ! -x "$STAGE/bin/anyps5-launcher" ] || [ ! -x "$STAGE/bin/relinker" ]; then
   echo "FAIL: $URL is not a launcher package" >&2
   exit 2
 fi
-"$STAGE/bin/launcher" --version >/dev/null || {
+"$STAGE/bin/anyps5-launcher" --version >/dev/null || {
   echo "FAIL: packaged launcher does not start" >&2
   exit 2
 }

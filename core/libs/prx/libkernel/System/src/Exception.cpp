@@ -5,12 +5,17 @@
 #include "prx/libkernel/KernelErrors.hpp"
 #include "prx/libkernel/Pthread/include/Pthread.hpp"
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <pthread.h>
+#include <signal.h>
+#include <ucontext.h>
 #endif
 
 extern "C" Pthread APS5_VABI scePthreadSelf();
@@ -85,7 +90,7 @@ using GuestExceptionHandler = void (APS5_VABI *)(int, void*);
 constexpr std::array<int, 6> AllowedSignals{1, 4, 8, 10, 11, 30};
 
 std::mutex handlersLock;
-std::array<void*, 32> handlers{};
+std::array<std::atomic<void*>, 32> handlers{};
 
 bool Allowed(int signum) {
     for (const int allowed : AllowedSignals)
@@ -94,8 +99,7 @@ bool Allowed(int signum) {
 }
 
 GuestExceptionHandler Handler(int signum) {
-    std::lock_guard lock(handlersLock);
-    return reinterpret_cast<GuestExceptionHandler>(handlers[signum]);
+    return reinterpret_cast<GuestExceptionHandler>(handlers[signum].load(std::memory_order_acquire));
 }
 
 #ifdef _WIN32
@@ -236,6 +240,132 @@ bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
     ResumeThread(native);
     return true;
 }
+#else
+
+struct SignalPair {
+    int guest;
+    int host;
+};
+
+constexpr std::array<SignalPair, 6> SignalPairs{{{1, SIGHUP}, {4, SIGILL}, {8, SIGFPE}, {10, SIGBUS}, {11, SIGSEGV}, {30, SIGUSR1}}};
+
+int HostSignal(int signum) {
+    for (const auto& pair : SignalPairs)
+        if (pair.guest == signum) return pair.host;
+    return 0;
+}
+
+int GuestSignal(int hostSignum) {
+    for (const auto& pair : SignalPairs)
+        if (pair.host == hostSignum) return pair.guest;
+    return 0;
+}
+
+void Deliver(GuestExceptionHandler handler, int signum, const ucontext_t& host) {
+    GuestUcontext ucontext{};
+    auto& m = ucontext.mcontext;
+#ifdef __APPLE__
+    const auto& ss = host.uc_mcontext->__ss;
+    m.rdi = ss.__rdi;
+    m.rsi = ss.__rsi;
+    m.rdx = ss.__rdx;
+    m.rcx = ss.__rcx;
+    m.r8 = ss.__r8;
+    m.r9 = ss.__r9;
+    m.rax = ss.__rax;
+    m.rbx = ss.__rbx;
+    m.rbp = ss.__rbp;
+    m.r10 = ss.__r10;
+    m.r11 = ss.__r11;
+    m.r12 = ss.__r12;
+    m.r13 = ss.__r13;
+    m.r14 = ss.__r14;
+    m.r15 = ss.__r15;
+    m.trapno = 0;
+    m.fs = ss.__fs;
+    m.gs = ss.__gs;
+    m.addr = 0;
+    m.flags = ss.__rflags;
+    m.es = ss.__es;
+    m.ds = ss.__ds;
+    m.rip = ss.__rip;
+    m.cs = ss.__cs;
+    m.rflags = ss.__rflags;
+    m.rsp = ss.__rsp;
+    m.ss = ss.__ss;
+#else
+    const auto& gregs = host.uc_mcontext.gregs;
+    m.rdi = gregs[REG_RDI];
+    m.rsi = gregs[REG_RSI];
+    m.rdx = gregs[REG_RDX];
+    m.rcx = gregs[REG_RCX];
+    m.r8 = gregs[REG_R8];
+    m.r9 = gregs[REG_R9];
+    m.rax = gregs[REG_RAX];
+    m.rbx = gregs[REG_RBX];
+    m.rbp = gregs[REG_RBP];
+    m.r10 = gregs[REG_R10];
+    m.r11 = gregs[REG_R11];
+    m.r12 = gregs[REG_R12];
+    m.r13 = gregs[REG_R13];
+    m.r14 = gregs[REG_R14];
+    m.r15 = gregs[REG_R15];
+    m.trapno = gregs[REG_TRAPNO];
+    m.fs = static_cast<std::uint16_t>(gregs[REG_CSGSFS] >> 16);
+    m.gs = static_cast<std::uint16_t>(gregs[REG_CSGSFS] >> 32);
+    m.addr = gregs[REG_CR2];
+    m.flags = gregs[REG_ERR];
+    m.es = static_cast<std::uint16_t>(gregs[REG_CSGSFS] >> 48);
+    m.ds = static_cast<std::uint16_t>(gregs[REG_CSGSFS] >> 48);
+    m.rip = gregs[REG_RIP];
+    m.cs = static_cast<std::uint64_t>(gregs[REG_CSGSFS] & 0xffff);
+    m.rflags = gregs[REG_EFL];
+    m.rsp = gregs[REG_RSP];
+    m.ss = static_cast<std::uint64_t>(gregs[REG_CSGSFS] >> 32);
+#endif
+    handler(signum, &ucontext);
+}
+
+void GuestSignalTrampoline(int hostSignum, siginfo_t* info, void* context) {
+    const int signum = GuestSignal(hostSignum);
+    if (signum == 0) return;
+    const auto handler = Handler(signum);
+    if (handler == nullptr) return;
+    if (info != nullptr && info->si_code > 0) return;
+    Deliver(handler, signum, *static_cast<ucontext_t*>(context));
+}
+
+bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
+    const int hostSignal = HostSignal(signum);
+    if (hostSignal == 0) return false;
+    if (thread == scePthreadSelf()) {
+        ucontext_t host{};
+        if (getcontext(&host) != 0) throw std::runtime_error("sceKernelRaiseException: cannot capture the current thread context");
+        Deliver(handler, signum, host);
+        return true;
+    }
+    const auto native = thread->_thr.native_handle();
+    const int result = pthread_kill(native, hostSignal);
+    if (result == ESRCH) return false;
+    if (result != 0) throw std::runtime_error("sceKernelRaiseException: cannot signal the target thread");
+    return true;
+}
+
+void InstallHostSignal(int signum) {
+    const int hostSignal = HostSignal(signum);
+    if (hostSignal == 0) return;
+    struct sigaction action{};
+    action.sa_sigaction = &GuestSignalTrampoline;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    sigaction(hostSignal, &action, nullptr);
+}
+
+void RemoveHostSignal(int signum) {
+    const int hostSignal = HostSignal(signum);
+    if (hostSignal == 0) return;
+    signal(hostSignal, SIG_DFL);
+}
 #endif
 
 }
@@ -273,6 +403,9 @@ int APS5_VABI sceKernelInstallExceptionHandler(int signum, void* handler) {
  std::lock_guard lock(handlersLock);
  if (handlers[signum] != nullptr) return SCE_KERNEL_ERROR_EAGAIN;
  handlers[signum] = handler;
+#ifndef _WIN32
+ InstallHostSignal(signum);
+#endif
  return 0;
 }
 
@@ -280,6 +413,9 @@ int APS5_VABI sceKernelRemoveExceptionHandler(int signum) {
  if (!Allowed(signum)) return SCE_KERNEL_ERROR_EINVAL;
  std::lock_guard lock(handlersLock);
  handlers[signum] = nullptr;
+#ifndef _WIN32
+ RemoveHostSignal(signum);
+#endif
  return 0;
 }
 
@@ -288,12 +424,7 @@ int APS5_VABI sceKernelRaiseException(Pthread thread, int signum) {
  if (thread == nullptr || thread->_finished.load(std::memory_order_acquire)) return SCE_KERNEL_ERROR_ESRCH;
  const auto handler = Handler(signum);
  if (handler == nullptr) throw std::runtime_error("sceKernelRaiseException: no handler installed for the signal");
-#ifdef _WIN32
  return RaiseOn(thread, handler, signum) ? 0 : SCE_KERNEL_ERROR_ESRCH;
-#else
- NotImplemented_nid_no_patch(__func__);
- return 0;
-#endif
 }
 
 void APS5_VABI sceKernelDebugRaiseException(int c1, int c2) {

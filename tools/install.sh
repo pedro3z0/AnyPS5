@@ -51,6 +51,11 @@ version_of() {
 if [ "$MODE" = "uninstall" ]; then
   echo "removing $ROOT and $BIN/anyps5-launcher and $BIN/relinker"
   rm -rf "$ROOT" "$BIN/anyps5-launcher" "$BIN/relinker"
+  echo "your games, library, and settings are kept:"
+  echo "  dumps and converted games stay under ~/anyps5-launcher"
+  echo "  ~/.config/anyps5 holds your library and launcher settings"
+  echo "  ~/.local/share/anyps5 holds command logs"
+  echo "remove those directories yourself if you want them gone too"
   exit 0
 fi
 if [ -n "$SOURCE" ]; then

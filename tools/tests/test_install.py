@@ -138,6 +138,22 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("checksum mismatch", result.stdout + result.stderr)
 
+    def test_uninstall_removes_tree(self):
+        prefix = self.tmp / "prefix-uninstall"
+        result = self.run_tool("install.sh", "--prefix", str(prefix))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue((prefix / "bin" / "anyps5-launcher").exists())
+        result = subprocess.run(["bash", str(TOOLS / "uninstall.sh"), "--prefix", str(prefix)], capture_output=True, text=True, env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("anyps5-launcher", result.stdout)
+        self.assertFalse((prefix / "lib" / "anyps5").exists())
+        self.assertFalse((prefix / "bin" / "anyps5-launcher").exists())
+
+    def test_uninstall_help(self):
+        result = subprocess.run(["bash", str(TOOLS / "uninstall.sh"), "--help"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("settings, and logs are kept", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

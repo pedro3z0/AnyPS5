@@ -71,7 +71,7 @@ int APS5_VABI sceNpWebApi2GetHttpResponseHeaderValueLength(int64_t request_id, c
 int APS5_VABI sceNpWebApi2Initialize(int lib_http_ctx_id, size_t pool_size) {
     (void)lib_http_ctx_id;
     (void)pool_size;
-    return g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    return 0;
 }
 
 int APS5_VABI sceNpWebApi2PushEventCreateFilter(int lib_ctx_id, int handle_id, const char* np_service_name, uint32_t np_service_label, const void* filter_param, size_t filter_param_num) {

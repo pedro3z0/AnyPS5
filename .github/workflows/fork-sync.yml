@@ -35,9 +35,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      # Required to push commits that add or modify files under .github/workflows/
-      # (GitHub blocks App/GITHUB_TOKEN workflow edits without this permission).
-      workflows: write
     env:
       GH_TOKEN: ${{ github.token }}
       UPSTREAM: ${{ inputs.upstream || 'boykopovar/AnyPS5' }}

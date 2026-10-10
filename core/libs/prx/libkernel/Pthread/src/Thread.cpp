@@ -316,7 +316,11 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
         ReleaseThread(published);
 #else
     auto* self = p.get();
-    p->_thr = std::thread([self, args = std::move(args), ready = start.get_future()]() mutable {
+    std::promise<void> signaled;
+    p->_thr = std::thread([self, args = std::move(args), ready = start.get_future(), gate = signaled.get_future()]() mutable {
+        self->native.store(pthread_self(), std::memory_order_relaxed);
+        self->native.notify_one();
+        gate.wait();
         if (!ready.get()) return;
         self->threadId = std::this_thread::get_id();
         struct ThreadGuard {
@@ -342,6 +346,8 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
     }
     auto* published = p.release();
     *thread = published;
+    signaled.set_value();
+    published->native.wait(0, std::memory_order_relaxed);
     start.set_value(true);
     if (detached)
         ReleaseThread(published);
@@ -418,6 +424,7 @@ Pthread APS5_VABI scePthreadSelf() {
         adoptedThread->_detached = true;
         adoptedThread->_adopted = true;
         adoptedThread->threadId = std::this_thread::get_id();
+        adoptedThread->native.store(pthread_self(), std::memory_order_relaxed);
         SetStackFromHost(adoptedThread.get());
         currentThread = adoptedThread.get();
     }

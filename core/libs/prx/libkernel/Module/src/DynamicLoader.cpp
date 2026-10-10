@@ -104,14 +104,22 @@ char* APS5_VABI dlerror_nid_postfix() {
     return loaderError.data();
 }
 static std::filesystem::path RelinkedModulePath(const std::filesystem::path& path) {
-    for (const char* suffix : {"", ".esbak"}) {
-        auto relinked = path;
-        relinked += suffix;
-        relinked += ".guest.prx";
-        std::error_code error;
-        if (std::filesystem::is_regular_file(relinked, error)) return relinked;
+    std::error_code error;
+    auto relinked = path;
+    relinked += ".guest.prx";
+    if (std::filesystem::is_regular_file(relinked, error)) return relinked;
+    const auto directory = path.parent_path();
+    if (!std::filesystem::is_directory(directory, error)) return path;
+    const auto wanted = path.filename().string();
+    std::filesystem::path match;
+    for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+        if (error) break;
+        const auto name = entry.path().filename().string();
+        if (name.size() <= wanted.size() || !name.starts_with(wanted) || !name.ends_with(".guest.prx")) continue;
+        if (!match.empty()) return path;
+        match = entry.path();
     }
-    return path;
+    return match.empty() ? path : match;
 }
 
 void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {

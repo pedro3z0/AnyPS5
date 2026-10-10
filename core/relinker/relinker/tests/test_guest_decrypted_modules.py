@@ -29,6 +29,14 @@ def main():
         needed = convert(relinker, work / "encrypted-only", imports, ["other.prx"],
                          extra=[("Media/Plugins/PS5Util.prx", b"not an elf at all")])
         assert needed == ["$ORIGIN/app0/sce_module/other.prx.guest.prx", *imports], needed
+
+        plugins = work / "module-dir" / "Plugins"
+        needed = convert(relinker, work / "module-dir", imports, ["other.prx"],
+                         options=("--module-dir", str(plugins)),
+                         extra=[("Plugins/extra.prx.esbak", guest_fixture(PLAIN_SITE))])
+        assert needed == ["$ORIGIN/app0/sce_module/other.prx.guest.prx",
+                          "libkernel.prx", "libc.prx"], needed
+        assert (work / "module-dir" / "app0" / "Plugins" / "extra.prx.esbak.guest.prx").is_file()
     print("Guest decrypted module integration tests passed")
 
 

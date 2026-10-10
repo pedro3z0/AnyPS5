@@ -101,6 +101,22 @@ void CollectModuleDirs(const std::filesystem::path& dir, int depth, std::vector<
     for (const auto& child : children) CollectModuleDirs(child, depth - 1, out);
 }
 
+std::vector<std::filesystem::path> ModuleDirsFor(const Game& game) {
+    std::vector<std::filesystem::path> moduleDirs;
+    const auto container = ContainerDir(game);
+    std::error_code scanError;
+    if (std::filesystem::is_directory(container, scanError)) {
+        std::filesystem::directory_iterator it(container, scanError);
+        const std::filesystem::directory_iterator end;
+        for (; it != end && !scanError; it.increment(scanError)) {
+            if (!it->is_directory()) continue;
+            CollectModuleDirs(it->path(), 1, moduleDirs);
+        }
+    }
+    std::sort(moduleDirs.begin(), moduleDirs.end());
+    return moduleDirs;
+}
+
 }
 
 void App::Load() {
@@ -340,6 +356,10 @@ bool App::Convert(int index) {
     if (game.intel) args.push_back("--to-intel");
     args.push_back("unused-filter=" + game.filter);
     args.push_back("--registry");
+    for (const auto& dir : ModuleDirsFor(game)) {
+        args.push_back("--module-dir");
+        args.push_back(dir.string());
+    }
     args.push_back(game.input);
     args.push_back(ExecutablePath(game).string());
     commandGame = index;
@@ -374,19 +394,7 @@ bool App::Audit(int index) {
         return false;
     }
     std::vector<std::string> args = {"python3", audit.string(), registry.string(), "--libs", libs.string()};
-    const auto container = ContainerDir(game);
-    std::vector<std::filesystem::path> moduleDirs;
-    std::error_code scanError;
-    if (std::filesystem::is_directory(container, scanError)) {
-        std::filesystem::directory_iterator it(container, scanError);
-        const std::filesystem::directory_iterator end;
-        for (; it != end && !scanError; it.increment(scanError)) {
-            if (!it->is_directory()) continue;
-            CollectModuleDirs(it->path(), 1, moduleDirs);
-        }
-    }
-    std::sort(moduleDirs.begin(), moduleDirs.end());
-    for (const auto& dir : moduleDirs) {
+    for (const auto& dir : ModuleDirsFor(game)) {
         args.push_back("--modules");
         args.push_back(dir.string());
     }

@@ -336,6 +336,7 @@ void GuestSignalTrampoline(int hostSignum, siginfo_t* info, void* context) {
 }
 
 bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
+    if (thread->_finished.load(std::memory_order_acquire)) return false;
     const int hostSignal = HostSignal(signum);
     if (hostSignal == 0) return false;
     if (thread == scePthreadSelf()) {
@@ -344,7 +345,8 @@ bool RaiseOn(Pthread thread, GuestExceptionHandler handler, int signum) {
         Deliver(handler, signum, host);
         return true;
     }
-    const auto native = thread->_thr.native_handle();
+    const auto native = thread->native.load(std::memory_order_relaxed);
+    if (thread->_finished.load(std::memory_order_acquire)) return false;
     const int result = pthread_kill(native, hostSignal);
     if (result == ESRCH) return false;
     if (result != 0) throw std::runtime_error("sceKernelRaiseException: cannot signal the target thread");

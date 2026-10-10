@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include "SceTypes.hpp"
@@ -81,6 +83,17 @@ int APS5_VABI dlclose_nid_postfix(void* handle);
 namespace {
 constexpr int kRtldNow = 2;
 }
+
+#ifndef _WIN32
+namespace {
+void StartModule(void* handle, std::size_t args, const void* argp) {
+    void* start = dlsym_nid_postfix(handle, "Aps5GuestStart");
+    if (start == nullptr) return;
+    using ModuleStart = int (*)(std::size_t, const void*);
+    reinterpret_cast<ModuleStart>(start)(args, argp);
+}
+}
+#endif
 
 extern "C" {
 
@@ -188,14 +201,23 @@ int APS5_VABI sceKernelGetModuleInfoForUnwind(uint64_t addr, int flags, ModuleIn
 }
 
 KernelModule APS5_VABI sceKernelLoadStartModule(const char* module_file_name, size_t args, const void* argp, uint32_t flags, const KernelLoadModuleOpt* opt, int* res) {
- (void)args;
- (void)argp;
  (void)flags;
  (void)opt;
  if (res) *res = 0;
  if (!module_file_name) return static_cast<KernelModule>(SCE_KERNEL_ERROR_EFAULT);
  void* handle = dlopen_nid_postfix(module_file_name, kRtldNow);
  if (!handle) return static_cast<KernelModule>(SCE_KERNEL_ERROR_ENOENT);
+#ifndef _WIN32
+ {
+     static std::mutex startedLock;
+     static std::set<std::string> startedModules;
+     const std::string name = module_file_name;
+     const auto slash = name.find_last_of('/');
+     const auto base = slash == std::string::npos ? name : name.substr(slash + 1);
+     std::lock_guard<std::mutex> lock(startedLock);
+     if (startedModules.insert(base).second) StartModule(handle, args, argp);
+ }
+#endif
  return static_cast<KernelModule>(reinterpret_cast<intptr_t>(handle));
 }
 

@@ -8,7 +8,7 @@
 
 namespace Elfpatcher {
 
-std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestImage& image, const std::vector<std::string>& dependencies, const std::string& runPath) const {
+std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestImage& image, const std::vector<std::string>& dependencies, const std::string& runPath, const bool runtimeOnly) const {
     auto bytes = image.Bytes;
     std::vector<Domain::ProgramHeader> headers;
     std::uint64_t end = 0;
@@ -19,6 +19,7 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestIma
             if (header.Flags == 0) continue;
             header.Flags |= 4;
         }
+        if (header.Type == 0x6474e551) header.Flags &= ~static_cast<std::uint32_t>(1);
         headers.push_back(header);
     }
     if (end > std::numeric_limits<std::uint64_t>::max() - 0x4000) throw Domain::RelinkerException("Guest virtual address overflow");
@@ -48,13 +49,23 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestIma
     if (needsTlsResolver) needed.push_back(addString("ld-linux-x86-64.so.2"));
     const auto soname = addString(image.OutputName);
     const auto search = addString(runPath);
+    const bool hasStartSymbol = runtimeOnly && image.Init != 0;
+    const auto startSymbolName = hasStartSymbol ? addString("Aps5GuestStart") : 0;
+    if (hasStartSymbol) {
+        Io::AppendU32(symbols, startSymbolName);
+        Io::AppendU8(symbols, 0x12);
+        Io::AppendU8(symbols, 0);
+        Io::AppendU16(symbols, 1);
+        Io::AppendU64(symbols, image.Init);
+        Io::AppendU64(symbols, 0);
+    }
     const auto strAddress = address();
     bytes.insert(bytes.end(), strings.begin(), strings.end());
     Io::AlignBuffer(bytes, 8);
     const auto symAddress = address();
     bytes.insert(bytes.end(), symbols.begin(), symbols.end());
     const auto hashAddress = address();
-    const auto count = static_cast<std::uint32_t>(image.Symbols.size());
+    const auto count = static_cast<std::uint32_t>(symbols.size() / 24);
     Io::AppendU32(bytes, 1);
     Io::AppendU32(bytes, count);
     Io::AppendU32(bytes, count > 1 ? 1 : 0);
@@ -67,10 +78,14 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestIma
     const auto lifecycle = [&](std::uint64_t target) {
         if (target == 0) return std::uint64_t{};
         const auto start = address();
-        bytes.insert(bytes.end(), {0x31, 0xff, 0x31, 0xf6, 0x31, 0xd2, 0xe9});
-        const auto displacement = static_cast<std::int64_t>(target) - static_cast<std::int64_t>(address() + 4);
-        if (displacement < std::numeric_limits<std::int32_t>::min() || displacement > std::numeric_limits<std::int32_t>::max()) throw Domain::RelinkerException("Guest initializer exceeds relative branch range");
-        Io::AppendU32(bytes, static_cast<std::uint32_t>(displacement));
+        if (runtimeOnly) {
+            bytes.insert(bytes.end(), {0xc3});
+        } else {
+            bytes.insert(bytes.end(), {0x31, 0xff, 0x31, 0xf6, 0x31, 0xd2, 0xe9});
+            const auto displacement = static_cast<std::int64_t>(target) - static_cast<std::int64_t>(address() + 4);
+            if (displacement < std::numeric_limits<std::int32_t>::min() || displacement > std::numeric_limits<std::int32_t>::max()) throw Domain::RelinkerException("Guest initializer exceeds relative branch range");
+            Io::AppendU32(bytes, static_cast<std::uint32_t>(displacement));
+        }
         return start;
     };
     const auto init = lifecycle(image.Init);
@@ -164,9 +179,10 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteLinux(const Relinker::GuestIma
                      static_cast<std::uint32_t>(siteDisplacement));
     }
     const auto phOffset = bytes.size();
-    const auto phCount = headers.size() + 2;
+    const auto phCount = headers.size() + 3;
     if (phCount > std::numeric_limits<std::uint16_t>::max()) throw Domain::RelinkerException("Too many guest program headers");
     const auto extraSize = bytes.size() + phCount * 56 - extraOffset;
+    headers.push_back({0x6474e551, 6, 0, 0, 0, 0, 0, 16});
     headers.push_back({1, 7, extraOffset, extraAddress, extraAddress, extraSize, extraSize, 0x4000});
     headers.push_back({2, 6, dynamicOffset, dynamicAddress, dynamicAddress, dynamicSize, dynamicSize, 8});
     for (const auto& header : headers) {

@@ -46,6 +46,8 @@ jobs:
           fetch-depth: 0
       - run: |
           set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream "https://github.com/$UPSTREAM.git" 2>/dev/null || git remote set-url upstream "https://github.com/$UPSTREAM.git"
           git fetch --no-tags upstream "$BRANCH"
           base=$(git rev-parse HEAD)
@@ -64,8 +66,9 @@ jobs:
             branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
             git checkout -b "$branch" "$head"
             git push origin "$branch"
-            gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local base was $base." --base main --head "$branch" || true
+            gh pr create --repo "$GITHUB_REPOSITORY" --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local base was $base." --base main --head "$branch" || true
             printf '## Fork sync\n\nOpened sync PR from `%s` (`%s`).\n' "$branch" "$head" >> "$GITHUB_STEP_SUMMARY"
+            printf 'Open or review: https://github.com/%s/compare/main...%s?expand=1\n' "$GITHUB_REPOSITORY" "$branch" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if git merge-base --is-ancestor "$base" "$head"; then
@@ -81,6 +84,8 @@ jobs:
           if git -c merge.conflictStyle=diff3 merge --no-edit --no-ff "upstream/$BRANCH" > /tmp/merge.log 2>&1; then
             merge_state="merged"
           else
+            echo "merge failed; merge output:"
+            cat /tmp/merge.log
             if python3 tools/sync_resolve.py --blocklist-out /tmp/blocked.txt > /tmp/resolver.log 2>&1; then
               git add -A
               git commit -m "chore(sync): merge $UPSTREAM/$BRANCH ($head) with guarded resolutions" > /dev/null
@@ -108,9 +113,13 @@ jobs:
           branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
           git checkout -qb "$branch"
           if [ "$merge_state" = "needs-pr" ]; then
-            git merge --no-edit --no-ff "upstream/$BRANCH" > /dev/null 2>&1 || true
+            git merge --no-edit --no-ff "upstream/$BRANCH" > /tmp/merge2.log 2>&1 || true
             git add -A || true
             git commit -m "chore(sync): conflict snapshot of $UPSTREAM/$BRANCH ($head)" > /dev/null 2>&1 || true
+            if [ "$(git rev-parse HEAD)" = "$base" ]; then
+              echo "snapshot branch carries no new commit; merge output:"
+              cat /tmp/merge2.log
+            fi
           fi
           for attempt in 1 2 3; do
             if git push origin "$branch"; then break; fi
@@ -133,8 +142,19 @@ jobs:
             else
               echo "The merge succeeded locally but pushing to main failed after retries."
             fi
+            if [ -f /tmp/merge.log ]; then
+              echo
+              echo "Merge output:"
+              echo '```'
+              cat /tmp/merge.log
+              echo '```'
+            fi
           } > /tmp/pr-body.txt
-          gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body-file /tmp/pr-body.txt --base main --head "$branch" || true
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --title "chore(sync): merge $UPSTREAM/$BRANCH" --body-file /tmp/pr-body.txt --base main --head "$branch"; then
+            echo "gh pr create failed; open the PR manually:"
+            printf 'https://github.com/%s/compare/main...%s?expand=1\n' "$GITHUB_REPOSITORY" "$branch"
+          fi
           printf '## Fork sync\n\nCould not land automatically; opened review PR from `%s`.\n' "$branch" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Open or review: https://github.com/%s/compare/main...%s?expand=1\n' "$GITHUB_REPOSITORY" "$branch" >> "$GITHUB_STEP_SUMMARY"
           if [ -f /tmp/resolver.log ]; then sed 's/^/    /' /tmp/resolver.log >> "$GITHUB_STEP_SUMMARY"; fi
 

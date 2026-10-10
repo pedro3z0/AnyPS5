@@ -79,7 +79,8 @@ struct App {
     bool Launch(int index);
 
     void StartCommand(const std::string& label, const std::vector<std::string>& args,
-                      const std::map<std::string, std::string>& env);
+                      const std::map<std::string, std::string>& env,
+                      const std::string& workingDirectory = "");
     bool IsRunning(int index) const;
     void UpdateGameStatus(const std::string& label, const std::vector<std::string>& lines);
     void SpawnDetached(const std::string& label, const std::string& exe,

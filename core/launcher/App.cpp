@@ -242,7 +242,7 @@ std::vector<std::string> App::SnapshotLog() {
     return logLines;
 }
 
-void App::StartCommand(const std::string& label, const std::vector<std::string>& args, const std::map<std::string, std::string>& env) {
+void App::StartCommand(const std::string& label, const std::vector<std::string>& args, const std::map<std::string, std::string>& env, const std::string& workingDirectory) {
     if (busy) return;
     busy = true;
     lastCommand = label;
@@ -251,8 +251,16 @@ void App::StartCommand(const std::string& label, const std::vector<std::string>&
     lastLog = log.string();
     std::error_code error;
     std::filesystem::create_directories(LogDirectory(), error);
-    std::thread([this, label, args, env, log] {
-        const std::string command = envPrefix(env) + join(args);
+    std::thread([this, label, args, env, workingDirectory, log] {
+        std::string cwdPrefix;
+        if (!workingDirectory.empty()) {
+#ifdef _WIN32
+            cwdPrefix = "cd /d " + shellQuote(workingDirectory) + " && ";
+#else
+            cwdPrefix = "cd " + shellQuote(workingDirectory) + " && ";
+#endif
+        }
+        const std::string command = cwdPrefix + envPrefix(env) + join(args);
         std::vector<std::string> lines;
         bool ok = false;
         std::FILE* pipe = popen(command.c_str(), "r");
@@ -462,7 +470,7 @@ bool App::Launch(int index) {
     commandGame = index;
     runningGame = index;
 #ifdef _WIN32
-    StartCommand("run", {exe.string()}, env);
+    StartCommand("run", {exe.string()}, env, exe.parent_path().string());
 #else
     SpawnDetached("run", exe.string(), env);
 #endif
@@ -499,6 +507,13 @@ void App::SpawnDetached(const std::string& label, const std::string& exe, const 
         if (pid == 0) {
             setsid();
             close(errfd[0]);
+            const std::filesystem::path exeDir = std::filesystem::path(exe).parent_path();
+            if (!exeDir.empty() && chdir(exeDir.c_str()) != 0) {
+                const int err = errno;
+                const ssize_t ignored = write(errfd[1], &err, sizeof(err));
+                (void)ignored;
+                _exit(126);
+            }
             const int devnull = open("/dev/null", O_RDWR);
             const int logfd = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (devnull >= 0) {

@@ -35,6 +35,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Required to push commits that add or modify files under .github/workflows/
+      # (GitHub blocks App/GITHUB_TOKEN workflow edits without this permission).
+      workflows: write
     env:
       GH_TOKEN: ${{ github.token }}
       UPSTREAM: ${{ inputs.upstream || 'boykopovar/AnyPS5' }}
@@ -65,6 +68,7 @@ jobs:
             git checkout -b "$branch" "$head"
             git push origin "$branch"
             gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local base was $base." --base main --head "$branch" || true
+            printf '## Fork sync\n\nOpened sync PR from `%s` (`%s`).\n' "$branch" "$head" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if git merge-base --is-ancestor "$base" "$head"; then
@@ -72,9 +76,68 @@ jobs:
             git merge --ff-only "upstream/$BRANCH"
             git push origin main
             echo "fast-forwarded main to $head"
-          else
-            branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
-            git checkout -b "$branch" "$head"
-            git push origin "$branch"
-            gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local and upstream diverged; review and resolve manually. Local base was $base." --base main --head "$branch" || true
+            printf '## Fork sync\n\nFast-forwarded `main` to `%s`.\n' "$head" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          echo "diverged; attempting a guarded merge of upstream/$BRANCH into main"
+          git checkout main 2>/dev/null || git checkout -B main
+          if git -c merge.conflictStyle=diff3 merge --no-edit --no-ff "upstream/$BRANCH" > /tmp/merge.log 2>&1; then
+            merge_state="merged"
+          else
+            if python3 tools/sync_resolve.py --blocklist-out /tmp/blocked.txt > /tmp/resolver.log 2>&1; then
+              git add -A
+              git commit -m "chore(sync): merge $UPSTREAM/$BRANCH ($head) with guarded resolutions" > /dev/null
+              merge_state="auto-merged"
+            else
+              cat /tmp/resolver.log || true
+              git merge --abort 2>/dev/null || true
+              merge_state="needs-pr"
+            fi
+          fi
+          pushed=false
+          if [ "$merge_state" = "merged" ] || [ "$merge_state" = "auto-merged" ]; then
+            for attempt in 1 2 3; do
+              if git push origin main; then pushed=true; break; fi
+              git fetch origin main || true
+              git rebase origin/main || { git rebase --abort 2>/dev/null || true; break; }
+            done
+          fi
+          if $pushed; then
+            printf '## Fork sync\n\nMerged `%s/%s` into `main` as %s (`%s`).\n' "$UPSTREAM" "$BRANCH" "$merge_state" "$head" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f /tmp/resolver.log ]; then sed 's/^/    /' /tmp/resolver.log >> "$GITHUB_STEP_SUMMARY"; fi
+            exit 0
+          fi
+          echo "automatic path could not land on main ($merge_state); opening a review PR"
+          branch="upstream-sync/$BRANCH-$(date -u +%Y%m%d%H%M)"
+          git checkout -qb "$branch"
+          if [ "$merge_state" = "needs-pr" ]; then
+            git merge --no-edit --no-ff "upstream/$BRANCH" > /dev/null 2>&1 || true
+            git add -A || true
+            git commit -m "chore(sync): conflict snapshot of $UPSTREAM/$BRANCH ($head)" > /dev/null 2>&1 || true
+          fi
+          for attempt in 1 2 3; do
+            if git push origin "$branch"; then break; fi
+            git fetch origin "$branch" || true
+            git rebase "origin/$branch" || { git rebase --abort 2>/dev/null || true; break; }
+          done
+          {
+            echo "Automated upstream sync from $UPSTREAM/$BRANCH ($head). Local base was $base."
+            echo
+            if [ "$merge_state" = "needs-pr" ]; then
+              echo "The automatic merge was stopped; the conflicts below need a human."
+              echo
+              echo '```'
+              cat /tmp/resolver.log 2>/dev/null || true
+              echo '```'
+              echo "Blocked (guarded) files:"
+              echo '```'
+              cat /tmp/blocked.txt 2>/dev/null || true
+              echo '```'
+            else
+              echo "The merge succeeded locally but pushing to main failed after retries."
+            fi
+          } > /tmp/pr-body.txt
+          gh pr create --title "chore(sync): merge $UPSTREAM/$BRANCH" --body-file /tmp/pr-body.txt --base main --head "$branch" || true
+          printf '## Fork sync\n\nCould not land automatically; opened review PR from `%s`.\n' "$branch" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/resolver.log ]; then sed 's/^/    /' /tmp/resolver.log >> "$GITHUB_STEP_SUMMARY"; fi
+
